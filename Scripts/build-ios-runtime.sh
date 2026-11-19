@@ -100,7 +100,6 @@ STAGE="${CACHE}/SpeechCpp.xcframework"
 rm -rf "${STAGE}"
 xcodebuild -create-xcframework \
   -framework "${CACHE}/frameworks/iphoneos/SpeechCpp.framework" \
-  -framework "${CACHE}/frameworks/iphonesimulator/SpeechCpp.framework" \
   -output "${STAGE}"
 
 rm -rf "${OUT}/SpeechCpp.xcframework"
