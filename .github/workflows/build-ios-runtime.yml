@@ -1,0 +1,45 @@
+name: Build iOS Metal runtime
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "Scripts/build-ios-runtime.sh"
+      - ".github/workflows/build-ios-runtime.yml"
+      - "README.md"
+      - "docs/**"
+
+permissions:
+  contents: read
+
+jobs:
+  build-runtime:
+    runs-on: macos-26
+    timeout-minutes: 90
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: |
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-version
+
+      - name: Install build tools
+        run: |
+          brew install cmake ninja
+
+      - name: Build speech.cpp XCFramework
+        run: |
+          bash Scripts/build-ios-runtime.sh
+
+      - name: Upload XCFramework
+        uses: actions/upload-artifact@v4
+        with:
+          name: Haru4iOS-SpeechCpp-0.11.0
+          path: |
+            Artifacts/SpeechCpp.xcframework.zip
+            Artifacts/SHA256SUMS
+          if-no-files-found: error
+          retention-days: 14
