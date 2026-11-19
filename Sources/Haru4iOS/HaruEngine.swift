@@ -181,6 +181,35 @@ final class HaruEngine: ObservableObject {
     }
 
 
+    private func registerVoice(name: String, at url: URL, completion: @escaping (Result<Void, Error>) -> Void) {
+        guard let runtime else {
+            completion(.failure(NSError(domain: "HaruVoice", code: 1,
+                userInfo: [NSLocalizedDescriptionKey: "ランタイムが利用できません"])))
+            return
+        }
+        let handle = HaruRuntimeHandle(runtime)
+        worker.async {
+            var error = [CChar](repeating: 0, count: 1024)
+            let result = name.withCString { voiceName in
+                url.path.withCString { path in
+                    error.withUnsafeMutableBufferPointer {
+                        HaruRuntimeAddVoice(handle.pointer, voiceName, path, $0.baseAddress, $0.count)
+                    }
+                }
+            }
+            let message = error.withUnsafeBufferPointer { $0.baseAddress.map { String(cString: $0) } ?? "" }
+            DispatchQueue.main.async {
+                if result == 0 {
+                    self.registeredVoiceKeys.insert(name)
+                    completion(.success(()))
+                } else {
+                    completion(.failure(NSError(domain: "HaruVoice", code: result,
+                        userInfo: [NSLocalizedDescriptionKey: message])))
+                }
+            }
+        }
+    }
+
     func makeAndRegisterVoice(from sourceURL: URL, voiceURL: URL, voiceName: String,
                               completion: @escaping (Result<Void, Error>) -> Void) {
         guard let runtime, let modelPath else {
@@ -223,7 +252,10 @@ final class HaruEngine: ObservableObject {
                     throw NSError(domain: "HaruVoice", code: addResult,
                                   userInfo: [NSLocalizedDescriptionKey: message])
                 }
-                DispatchQueue.main.async { completion(.success(())) }
+                DispatchQueue.main.async {
+                    self.registeredVoiceKeys.insert(voiceName)
+                    completion(.success(()))
+                }
             } catch {
                 try? FileManager.default.removeItem(at: voiceURL)
                 DispatchQueue.main.async { completion(.failure(error)) }
