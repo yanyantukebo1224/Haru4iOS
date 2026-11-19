@@ -27,6 +27,7 @@ private final class HaruAudioIO {
     private var queued = 0
     private(set) var inputSampleRate: Double = 48_000
     private var running = false
+    private var playerAttached = false
 
     func start() throws {
         let session = AVAudioSession.sharedInstance()
@@ -43,11 +44,14 @@ private final class HaruAudioIO {
         }
         inputSampleRate = format.sampleRate
 
-        engine.attach(player)
-        let outputFormat = AVAudioFormat(commonFormat: .pcmFormatFloat32,
-                                         sampleRate: 24_000, channels: 1,
-                                         interleaved: false)!
-        engine.connect(player, to: engine.mainMixerNode, format: outputFormat)
+        if !playerAttached {
+            engine.attach(player)
+            let outputFormat = AVAudioFormat(commonFormat: .pcmFormatFloat32,
+                                             sampleRate: 24_000, channels: 1,
+                                             interleaved: false)!
+            engine.connect(player, to: engine.mainMixerNode, format: outputFormat)
+            playerAttached = true
+        }
         input.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] buffer, _ in
             self?.capture(buffer)
         }
