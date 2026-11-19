@@ -140,27 +140,29 @@ struct ContentView: View {
         let id = profiles.selected.id
         let access = source.startAccessingSecurityScopedResource()
         defer { if access { source.stopAccessingSecurityScopedResource() } }
-        let importedCopy = FileManager.default.temporaryDirectory
-            .appendingPathComponent("haru-import-\\(UUID().uuidString).\\(source.pathExtension)")
+        let (destination, key) = profiles.newVoiceDestination(for: profiles.selected)
+        let ext = source.pathExtension.isEmpty ? "audio" : source.pathExtension.lowercased()
+        let savedRecording = profiles.sourceAudioDestination(for: key, fileExtension: ext)
         do {
-            try FileManager.default.copyItem(at: source, to: importedCopy)
+            try FileManager.default.copyItem(at: source, to: savedRecording)
         } catch {
             voiceMessage = "音声ファイルをアプリ領域へコピーできません: " + error.localizedDescription
             return
         }
-        let (destination, key) = profiles.newVoiceDestination(for: profiles.selected)
         voiceBusy = true
         voiceMessage = "音声を解析・変換しています…"
-        engine.makeAndRegisterVoice(from: importedCopy, voiceURL: destination, voiceName: key) { result in
-            try? FileManager.default.removeItem(at: importedCopy)
+        engine.makeAndRegisterVoice(from: savedRecording, voiceURL: destination, voiceName: key) { result in
             voiceBusy = false
             switch result {
             case .success:
-                profiles.setVoice(for: id, key: key, fileName: destination.lastPathComponent)
-                voiceMessage = "ボイスを登録し、プロファイルに保存しました"
+                profiles.setVoice(for: id, key: key, fileName: destination.lastPathComponent,
+                                  sourceAudioFileName: savedRecording.lastPathComponent)
+                voiceMessage = "元音声・ボイスデータ・ペルソナをまとめて保存しました"
             case .failure(let error):
-                voiceMessage = "ボイス登録失敗: \(error.localizedDescription)"
+                try? FileManager.default.removeItem(at: savedRecording)
+                voiceMessage = "ボイス登録失敗: " + error.localizedDescription
             }
         }
     }
+}
 }
