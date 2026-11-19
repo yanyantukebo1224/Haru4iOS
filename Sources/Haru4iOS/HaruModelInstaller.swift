@@ -11,7 +11,7 @@ final class HaruModelInstaller: NSObject, ObservableObject, URLSessionDownloadDe
     @Published private(set) var hasError = false
 
     private static let modelFileName = "Haru-4B-Q4_K.gguf"
-    private static let modelURL = URL(string:
+    private static let remoteModelURL = URL(string:
         "https://huggingface.co/sakasegawa/Haru-4B-GGUF/resolve/main/Haru-4B-Q4_K.gguf?download=true"
     )!
     private static let expectedBytes: Int64 = 4_522_673_920
@@ -53,16 +53,14 @@ final class HaruModelInstaller: NSObject, ObservableObject, URLSessionDownloadDe
 
         let fileURL = destinationURL
         DispatchQueue.global(qos: .utility).async { [weak self] in
-            do {
-                if self?.isValidModel(at: fileURL) == true {
-                    DispatchQueue.main.async {
-                        self?.publish(status: "モデル確認完了。読み込み中…", progress: 1, error: false)
-                        self?.modelURL = fileURL
-                    }
+            let valid = self?.isValidModel(at: fileURL) == true
+            DispatchQueue.main.async {
+                guard let self else { return }
+                if valid {
+                    self.publish(status: "モデル確認完了。読み込み中…", progress: 1, error: false)
+                    self.modelURL = fileURL
                 } else {
-                    DispatchQueue.main.async {
-                        self?.beginDownload()
-                    }
+                    self.beginDownload()
                 }
             }
         }
@@ -84,7 +82,7 @@ final class HaruModelInstaller: NSObject, ObservableObject, URLSessionDownloadDe
                 try? fileManager.removeItem(at: resumeDataURL)
                 downloadTask = session.downloadTask(withResumeData: resumeData)
             } else {
-                downloadTask = session.downloadTask(with: Self.modelURL)
+                downloadTask = session.downloadTask(with: Self.remoteModelURL)
             }
             downloadTask?.resume()
         } catch {
@@ -145,7 +143,9 @@ final class HaruModelInstaller: NSObject, ObservableObject, URLSessionDownloadDe
                 }
             }
         } catch {
-            fail("ダウンロードファイルを保存できません: \(error.localizedDescription)")
+            DispatchQueue.main.async {
+                self.fail("ダウンロードファイルを保存できません: \(error.localizedDescription)")
+            }
         }
     }
 
@@ -177,12 +177,11 @@ final class HaruModelInstaller: NSObject, ObservableObject, URLSessionDownloadDe
         let handle = try FileHandle(forReadingFrom: url)
         defer { try? handle.close() }
         var hasher = SHA256()
-        while autoreleasepool(invoking: {
-            let data = try? handle.read(upToCount: 4 * 1024 * 1024)
-            guard let data, !data.isEmpty else { return false }
-            hasher.update(data: data)
-            return true
-        }) {}
+        while true {
+            guard let chunk = try handle.read(upToCount: 4 * 1024 * 1024),
+                  !chunk.isEmpty else { break }
+            hasher.update(data: chunk)
+        }
         let digest = hasher.finalize().map { String(format: "%02x", $0) }.joined()
         return digest == expectedSHA256
     }
