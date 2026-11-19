@@ -76,6 +76,10 @@ This is a proposed integration boundary, not a claim that every component is alr
 - Keep a clear distinction between **planned**, **implemented**, **built**, and **verified on device**.
 - Add automated tests alongside each implementation milestone.
 
+## Technical notes
+
+- [iOS runtime design](docs/IOS_RUNTIME_DESIGN.md) — verified dialogue API semantics, audio-threading design, memory constraints, and implementation sequence.
+
 ## References
 
 - [Haru](https://github.com/higurashi-ai/Haru)
