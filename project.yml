@@ -7,6 +7,8 @@ settings:
     SWIFT_VERSION: "5.9"
     IPHONEOS_DEPLOYMENT_TARGET: "17.0"
     TARGETED_DEVICE_FAMILY: "1,2"
+    ARCHS: arm64
+    "EXCLUDED_ARCHS[sdk=iphonesimulator*]": x86_64
     CODE_SIGN_STYLE: Manual
 targets:
   Haru4iOS:
