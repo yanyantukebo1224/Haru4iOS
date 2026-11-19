@@ -8,6 +8,8 @@
     <string>dev.haru4ios.app</string>
     <key>CFBundleName</key>
     <string>Haru4iOS</string>
+    <key>CFBundleExecutable</key>
+    <string>$(EXECUTABLE_NAME)</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
