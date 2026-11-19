@@ -28,7 +28,12 @@ struct ContentView: View {
         .fileImporter(isPresented: $showingAudioImporter, allowedContentTypes: [.audio],
                       allowsMultipleSelection: false) { result in
             switch result {
-            case .success(let url): importVoice(url)
+            case .success(let urls):
+                guard let url = urls.first else {
+                    voiceMessage = "音声ファイルが選択されていません"
+                    return
+                }
+                importVoice(url)
             case .failure(let error): voiceMessage = "ファイル選択失敗: \(error.localizedDescription)"
             }
         }
