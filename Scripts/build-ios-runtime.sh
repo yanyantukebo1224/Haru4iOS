@@ -107,6 +107,6 @@ rm -rf "${OUT}/SpeechCpp.xcframework"
 mkdir -p "${OUT}"
 cp -R "${STAGE}" "${OUT}/SpeechCpp.xcframework"
 ditto -c -k --sequesterRsrc --keepParent "${OUT}/SpeechCpp.xcframework" "${OUT}/SpeechCpp.xcframework.zip"
-shasum -a 256 "${OUT}/SpeechCpp.xcframework.zip" > "${OUT}/SHA256SUMS"
+(cd "${OUT}" && shasum -a 256 "SpeechCpp.xcframework.zip" > "SHA256SUMS")
 
 echo "Built experimental speech.cpp 0.11.0 XCFramework at ${OUT}/SpeechCpp.xcframework"
