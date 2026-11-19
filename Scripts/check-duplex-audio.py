@@ -12,7 +12,7 @@ checks = {
     "input pump drains accumulated audio": "let pcm = self.audioIO.takeInput()" in engine,
     "input queue latency is bounded": "queuedMilliseconds + outputQueuedMilliseconds > 1_000" in engine,
     "input overflow is surfaced": "dropped > 0" in engine and "overflow" in engine,
-    "output scheduling is serialized": "self.outputQueue.async" in engine,
+    "output scheduling is serialized": "outputQueue.async { [audioIO]" in engine,
     "frame text is concatenated": "self.lastText += message" in engine,
     "PCM level is measured": "rms = pcm.isEmpty ? 0" in engine and "peak=%.4f" in engine,
     "input and output diagnostics are visible": "engine.inputDiagnostics" in ui and "engine.outputDiagnostics" in ui,
