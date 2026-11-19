@@ -110,7 +110,7 @@ struct ContentView: View {
 
             Section("リアルタイム音声対話") {
                 Button("会話を開始（マイク・スピーカー）") {
-                    engine.startDialogue(profile: profiles.selected)
+                    engine.startDialogue(profile: profiles.selected, voiceURL: profiles.selected.hasVoice ? profiles.voiceURL(for: profiles.selected) : nil)
                 }.disabled(engine.isDialogueActive || voiceBusy)
                 Button("セッション終了", role: .destructive) {
                     engine.stopDialogue()
@@ -140,10 +140,19 @@ struct ContentView: View {
         let id = profiles.selected.id
         let access = source.startAccessingSecurityScopedResource()
         defer { if access { source.stopAccessingSecurityScopedResource() } }
+        let importedCopy = FileManager.default.temporaryDirectory
+            .appendingPathComponent("haru-import-\\(UUID().uuidString).\\(source.pathExtension)")
+        do {
+            try FileManager.default.copyItem(at: source, to: importedCopy)
+        } catch {
+            voiceMessage = "音声ファイルをアプリ領域へコピーできません: " + error.localizedDescription
+            return
+        }
         let (destination, key) = profiles.newVoiceDestination(for: profiles.selected)
         voiceBusy = true
         voiceMessage = "音声を解析・変換しています…"
-        engine.makeAndRegisterVoice(from: source, voiceURL: destination, voiceName: key) { result in
+        engine.makeAndRegisterVoice(from: importedCopy, voiceURL: destination, voiceName: key) { result in
+            try? FileManager.default.removeItem(at: importedCopy)
             voiceBusy = false
             switch result {
             case .success:
