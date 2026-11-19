@@ -24,7 +24,7 @@ jobs:
       - name: Install build tools
         run: brew install cmake ninja xcodegen librsvg
 
-      - name: Build SpeechCpp device + simulator XCFramework
+      - name: Build iOS device-only SpeechCpp framework
         run: bash Scripts/build-ios-runtime.sh
 
       - name: Prepare framework
