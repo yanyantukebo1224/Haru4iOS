@@ -179,6 +179,105 @@ final class HaruEngine: ObservableObject {
         }
     }
 
+
+    func makeAndRegisterVoice(from sourceURL: URL, voiceURL: URL, voiceName: String,
+                              completion: @escaping (Result<Void, Error>) -> Void) {
+        guard let runtime, let modelPath else {
+            completion(.failure(NSError(domain: "HaruVoice", code: 1,
+                userInfo: [NSLocalizedDescriptionKey: "モデルが読み込まれていません"])))
+            return
+        }
+        let handle = HaruRuntimeHandle(runtime)
+        worker.async {
+            do {
+                let wavURL = FileManager.default.temporaryDirectory
+                    .appendingPathComponent("haru-reference-\\(UUID().uuidString).wav")
+                defer { try? FileManager.default.removeItem(at: wavURL) }
+                try Self.convertReferenceAudio(sourceURL, to: wavURL)
+                var error = [CChar](repeating: 0, count: 1024)
+                let makeResult = modelPath.withCString { model in
+                    wavURL.path.withCString { wav in
+                        voiceURL.path.withCString { voice in
+                            error.withUnsafeMutableBufferPointer {
+                                HaruRuntimeMakeVoice(model, wav, voice, $0.baseAddress, $0.count)
+                            }
+                        }
+                    }
+                }
+                guard makeResult == 0 else {
+                    let message = error.withUnsafeBufferPointer { $0.baseAddress.map { String(cString: $0) } ?? "" }
+                    throw NSError(domain: "HaruVoice", code: makeResult,
+                                  userInfo: [NSLocalizedDescriptionKey: message])
+                }
+                error = [CChar](repeating: 0, count: 1024)
+                let addResult = voiceName.withCString { name in
+                    voiceURL.path.withCString { path in
+                        error.withUnsafeMutableBufferPointer {
+                            HaruRuntimeAddVoice(handle.pointer, name, path, $0.baseAddress, $0.count)
+                        }
+                    }
+                }
+                guard addResult == 0 else {
+                    let message = error.withUnsafeBufferPointer { $0.baseAddress.map { String(cString: $0) } ?? "" }
+                    throw NSError(domain: "HaruVoice", code: addResult,
+                                  userInfo: [NSLocalizedDescriptionKey: message])
+                }
+                DispatchQueue.main.async { completion(.success(())) }
+            } catch {
+                try? FileManager.default.removeItem(at: voiceURL)
+                DispatchQueue.main.async { completion(.failure(error)) }
+            }
+        }
+    }
+
+    private static func convertReferenceAudio(_ source: URL, to destination: URL) throws {
+        let input = try AVAudioFile(forReading: source)
+        let format = input.processingFormat
+        let duration = Double(input.length) / format.sampleRate
+        guard duration >= 3.0 else {
+            throw NSError(domain: "HaruVoice", code: 2,
+                          userInfo: [NSLocalizedDescriptionKey: "参照音声は3秒以上必要です"])
+        }
+        let frames = AVAudioFrameCount(min(duration, 180.0) * format.sampleRate)
+        if duration > 180 {
+            input.framePosition = input.length - AVAudioFramePosition(frames)
+        }
+        guard let sourceBuffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frames) else {
+            throw NSError(domain: "HaruVoice", code: 3,
+                          userInfo: [NSLocalizedDescriptionKey: "音声バッファを作成できません"])
+        }
+        try input.read(into: sourceBuffer, frameCount: frames)
+        let target = AVAudioFormat(commonFormat: .pcmFormatInt16, sampleRate: 24_000,
+                                   channels: 1, interleaved: true)!
+        guard let converter = AVAudioConverter(from: sourceBuffer.format, to: target) else {
+            throw NSError(domain: "HaruVoice", code: 4,
+                          userInfo: [NSLocalizedDescriptionKey: "音声形式を変換できません"])
+        }
+        let capacity = AVAudioFrameCount(Double(sourceBuffer.frameLength) * 24_000 / format.sampleRate + 2048)
+        guard let converted = AVAudioPCMBuffer(pcmFormat: target, frameCapacity: capacity) else {
+            throw NSError(domain: "HaruVoice", code: 5,
+                          userInfo: [NSLocalizedDescriptionKey: "変換先バッファを作成できません"])
+        }
+        var supplied = false
+        var conversionError: NSError?
+        let conversionStatus = converter.convert(to: converted, error: &conversionError) { _, status in
+            if supplied { status.pointee = .noDataNow; return nil }
+            supplied = true
+            status.pointee = .haveData
+            return sourceBuffer
+        }
+        if conversionStatus == .error {
+            throw conversionError ?? NSError(domain: "HaruVoice", code: 6,
+                userInfo: [NSLocalizedDescriptionKey: "音声変換に失敗しました"])
+        }
+        let output = try AVAudioFile(forWriting: destination, settings: [
+            AVFormatIDKey: kAudioFormatLinearPCM, AVSampleRateKey: 24_000,
+            AVNumberOfChannelsKey: 1, AVLinearPCMBitDepthKey: 16,
+            AVLinearPCMIsFloatKey: false, AVLinearPCMIsBigEndianKey: false
+        ])
+        try output.write(from: converted)
+    }
+
     func startDialogue(profile: CharacterProfile) {
         guard let runtime, isModelLoaded else {
             status = "先にHaru GGUFモデルを読み込んでください"
