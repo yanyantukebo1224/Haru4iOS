@@ -2,8 +2,8 @@
 
 Haru-4B を iPad / iPhone 上でローカル実行するための iOS プロジェクトです。
 
-> **Status: Planning / bootstrap**
-> まだ実機での Haru-4B 動作を確認した段階ではありません。ビルド・推論・全二重音声入出力は、検証結果に応じて段階的に完了扱いにします。
+> **Status: Native runtime built; app integration in progress**
+> speech.cpp 0.11.0 の iPhoneOS arm64 / iOS Simulator arm64 XCFramework は GitHub Actions でビルド・Artifact 化済みです。SwiftUI アプリと C API ブリッジの初期実装を追加しました。Haru GGUF の実機ロード、音声入出力、全二重対話はまだ実機検証前です。
 
 ## Goal
 
@@ -19,24 +19,23 @@ Haru-4B を iPad / iPhone 上でローカル実行するための iOS プロジ�
 - 音声のクラウド送信を前提とする設計
 - モデル重みやユーザーの音声データを Git に登録すること
 
-## Proposed architecture
+## Architecture
 
 ```text
 SwiftUI app
-  ├─ Audio I/O (AVAudioEngine / AVAudioSession)
-  ├─ Dialogue coordinator (lifecycle, interruption, state)
-  ├─ Swift Haru API
-  │    └─ C ABI bridge
-  │         └─ speech.cpp Haru runtime
+  ├─ Model file importer
+  ├─ HaruEngine (serial inference queue)
+  │    └─ Objective-C++ C ABI bridge
+  │         └─ speech.cpp Haru dialogue API
   │              └─ ggml / Metal
-  └─ Model store (download/import, size + SHA-256 validation)
+  └─ (next) AVAudioEngine + bounded input/output queues
 
 Microphone ──> bounded audio input queue ──> Haru dialogue session
 Speaker   <── bounded audio output queue <── Haru generated audio
                          └──────────────> text events / UI
 ```
 
-This is a proposed integration boundary, not a claim that every component is already implemented or verified on iOS.
+The current app milestone includes model selection/loading and a native dialogue-start smoke-test UI. Microphone capture and speaker playback are not wired yet.
 
 ## Engineering principles
 
@@ -53,34 +52,63 @@ This is a proposed integration boundary, not a claim that every component is alr
 |---|---|
 | Device | iPad Air (M2, 8 GB) |
 | Runtime | iOS / iPadOS native app |
-| Inference | speech.cpp Haru backend + ggml Metal, subject to iOS validation |
+| Inference | speech.cpp Haru backend + ggml Metal |
 | Interaction | Native full-duplex streaming |
 | Network | Not required for inference; model acquisition may be optional |
 | UI | SwiftUI |
 
 ## Milestones
 
-- [ ] M0 — Verify upstream Haru and speech.cpp APIs, revisions, licenses, and iOS constraints
-- [ ] M1 — Build a minimal iOS arm64 Metal runtime artifact
-- [ ] M2 — Load a compatible Haru model and run a non-audio smoke test
-- [ ] M3 — Connect the native dialogue API through a Swift wrapper
+- [x] M0 — Verify upstream Haru and speech.cpp APIs, revisions, licenses, and iOS constraints
+- [x] M1 — Build a minimal iOS arm64 Metal runtime artifact (GitHub Actions build passed)
+- [ ] M2 — Load a compatible Haru model and run a non-audio smoke test on device
+- [ ] M3 — Connect the native dialogue API through a Swift wrapper (initial bridge/UI committed; compile/device validation pending)
 - [ ] M4 — Implement real-time microphone input and speaker output
 - [ ] M5 — Verify simultaneous listening/speaking and interruption behavior
 - [ ] M6 — Measure memory, latency, stability, and thermal behavior on M2 iPad Air
 - [ ] M7 — Package a reproducible Xcode project, tests, and setup documentation
 
-## Experimental iOS runtime build
+## Build
 
-An initial build script now targets speech.cpp 0.11.0 / C API 4.2 and packages the iPhoneOS arm64 + Simulator arm64 libraries into an XCFramework:
+### Native runtime
 
 ```sh
 bash Scripts/build-ios-runtime.sh
 ```
 
-Requirements on a local Mac: Apple Silicon, Xcode, Git, CMake, and Ninja. The script is experimental and has **not yet been validated by a successful iOS build**. A GitHub Actions workflow also attempts this build on pushes to `main` and can be run manually. A successful workflow artifact is not the same as a successful Haru model run on an iPad.
+The script pins speech.cpp commit `8d18924cd238b87c0297df112f7ff40783a6414f` (0.11.0 / C API 4.2), builds iPhoneOS arm64 and iOS Simulator arm64, and packages `SpeechCpp.xcframework`.
 
-- [Build script](Scripts/build-ios-runtime.sh)
-- [GitHub Actions workflow](.github/workflows/build-ios-runtime.yml)
+The first GitHub Actions runtime build succeeded, including both platform slices and Artifact upload:
+
+- [Successful runtime build](https://github.com/yanyantukebo1224/Haru4iOS/actions/runs/44427011601)
+- [Runtime build workflow](.github/workflows/build-ios-runtime.yml)
+
+The uploaded Artifact is named `Haru4iOS-SpeechCpp-0.11.0`. It contains an outer Actions ZIP with `SpeechCpp.xcframework.zip` and `SHA256SUMS`. Artifacts expire after 14 days; rebuild from the pinned source when needed.
+
+### App project
+
+The Xcode project is generated with XcodeGen. After building the runtime, copy the XCFramework into `Frameworks/`:
+
+```sh
+brew install cmake ninja xcodegen
+bash Scripts/build-ios-runtime.sh
+mkdir -p Frameworks
+cp -R Artifacts/SpeechCpp.xcframework Frameworks/SpeechCpp.xcframework
+xcodegen generate
+xcodebuild -project Haru4iOS.xcodeproj -scheme Haru4iOS -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build
+```
+
+GitHub Actions also performs this sequence in [the app build workflow](.github/workflows/build-ios-app.yml). A successful Simulator compile is not proof of model loading or real-time performance on an iPad.
+
+## Current app scope
+
+- Select a local Haru GGUF file through the iOS document picker.
+- Load the model through speech.cpp with the automatic device selection.
+- Start a Haru native dialogue session with Japanese character-card options.
+- Receive the dialogue frame callback and copy its PCM/text data.
+- Microphone capture, playback, route handling, interruption handling, and a complete full-duplex UI are next.
+
+Do not assume every GGUF quantization fits the iPad's available memory. Begin with short dialogue limits and measure physical footprint on the actual device.
 
 ## Repository policy
 
@@ -91,10 +119,10 @@ Requirements on a local Mac: Apple Silicon, Xcode, Git, CMake, and Ninja. The sc
 
 ## Technical notes
 
-- [iOS runtime design](docs/IOS_RUNTIME_DESIGN.md) — verified dialogue API semantics, audio-threading design, memory constraints, and implementation sequence.
+- [iOS runtime design](docs/IOS_RUNTIME_DESIGN.md) — dialogue API semantics, audio-threading design, memory constraints, and implementation sequence.
 
 ## References
 
 - [Haru](https://github.com/higurashi-ai/Haru)
 - [speech.cpp](https://github.com/nyosegawa/speech.cpp)
-- [Irodori TTS for iPhone](https://github.com/Corvelis/irodori-tts-iphone) — reference for the iOS Swift Package / XCFramework integration pattern; it is not a Haru runtime.
+- [Irodori TTS for iPhone](https://github.com/Corvelis/irodori-tts-iphone) — reference for iOS integration patterns, not a Haru runtime.
