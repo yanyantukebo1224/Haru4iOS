@@ -14,9 +14,9 @@ permissions:
   contents: read
 
 jobs:
-  build-app:
+  build-and-simulator-smoke-test:
     runs-on: macos-26
-    timeout-minutes: 120
+    timeout-minutes: 180
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -24,7 +24,7 @@ jobs:
       - name: Install build tools
         run: brew install cmake ninja xcodegen librsvg
 
-      - name: Build speech.cpp XCFramework
+      - name: Build SpeechCpp device + simulator XCFramework
         run: bash Scripts/build-ios-runtime.sh
 
       - name: Prepare framework
@@ -42,7 +42,7 @@ jobs:
       - name: Generate Xcode project
         run: xcodegen generate
 
-      - name: Build iPhoneOS app (unsigned)
+      - name: Build iOS device app (unsigned)
         run: |
           xcodebuild \
             -project Haru4iOS.xcodeproj \
@@ -53,6 +53,49 @@ jobs:
             -derivedDataPath .build/DeviceData \
             CODE_SIGNING_ALLOWED=NO \
             build
+
+      - name: Build iOS Simulator app (unsigned)
+        run: |
+          xcodebuild \
+            -project Haru4iOS.xcodeproj \
+            -scheme Haru4iOS \
+            -configuration Debug \
+            -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath .build/SimulatorData \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+
+      - name: Boot simulator and smoke-test app launch
+        run: |
+          set -euo pipefail
+          UDID="$(python3 - <<'PY'
+          import json, subprocess
+          data = json.loads(subprocess.check_output(["xcrun", "simctl", "list", "devices", "available", "-j"]))
+          devices = [d for group in data["devices"].values() for d in group if d["name"].startswith("iPhone")]
+          if not devices:
+              raise SystemExit("No available iPhone simulator")
+          print(devices[0]["udid"])
+          PY
+          )"
+          echo "Simulator UDID: $UDID"
+          xcrun simctl boot "$UDID" 2>/dev/null || true
+          xcrun simctl bootstatus "$UDID" -b
+          APP=".build/SimulatorData/Build/Products/Debug-iphonesimulator/Haru4iOS.app"
+          test -d "$APP"
+          xcrun simctl install "$UDID" "$APP"
+          LAUNCH_RESULT="$(xcrun simctl launch --terminate-running-process "$UDID" dev.haru4ios.app)"
+          echo "$LAUNCH_RESULT"
+          PID="$(echo "$LAUNCH_RESULT" | awk -F': ' '{print $NF}')"
+          sleep 12
+          kill -0 "$PID"
+          xcrun simctl spawn "$UDID" log show --last 2m --style compact \
+            --predicate 'process == "Haru4iOS"' > simulator-runtime.log || true
+          if grep -E 'Termination Reason|EXC_BAD_ACCESS|SIGABRT|Application Specific Information' simulator-runtime.log; then
+            echo "Potential simulator crash found in unified log"
+            exit 1
+          fi
+          echo "Simulator launch smoke test passed (PID $PID)"
 
       - name: Package and validate unsigned IPA
         run: |
@@ -69,11 +112,21 @@ jobs:
           ditto -c -k --sequesterRsrc --keepParent Payload "$GITHUB_WORKSPACE/Haru4iOS-unsigned-for-signing.ipa"
           unzip -t "$GITHUB_WORKSPACE/Haru4iOS-unsigned-for-signing.ipa"
 
-      - name: Upload app artifacts
+      - name: Upload build and simulator logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Haru4iOS-build-and-simulator-logs
+          path: |
+            simulator-runtime.log
+            ~/Library/Logs/DiagnosticReports/*Haru4iOS*
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Upload unsigned IPA
         uses: actions/upload-artifact@v4
         with:
           name: Haru4iOS-app-builds
-          path: |
-            Haru4iOS-unsigned-for-signing.ipa
+          path: Haru4iOS-unsigned-for-signing.ipa
           if-no-files-found: error
           retention-days: 14
