@@ -26,6 +26,7 @@ private final class HaruAudioIO {
     private var writeIndex = 0
     private var queued = 0
     private var droppedInputSamples: Int64 = 0
+    private var queuedOutputSamples = 0
     private(set) var inputSampleRate: Double = 48_000
     private var running = false
     private var playerAttached = false
@@ -141,7 +142,21 @@ private final class HaruAudioIO {
         samples.withUnsafeBufferPointer { source in
             if let base = source.baseAddress { channel.update(from: base, count: samples.count) }
         }
-        player.scheduleBuffer(buffer, completionHandler: nil)
+        lock.lock()
+        queuedOutputSamples += samples.count
+        lock.unlock()
+        player.scheduleBuffer(buffer, completionHandler: { [weak self] in
+            guard let self else { return }
+            self.lock.lock()
+            self.queuedOutputSamples = max(0, self.queuedOutputSamples - samples.count)
+            self.lock.unlock()
+        })
+    }
+
+    func queuedOutputMilliseconds() -> Double {
+        lock.lock()
+        defer { lock.unlock() }
+        return Double(queuedOutputSamples) / 24_000 * 1000.0
     }
 
     func stop() {
@@ -155,6 +170,7 @@ private final class HaruAudioIO {
         writeIndex = 0
         queued = 0
         droppedInputSamples = 0
+        queuedOutputSamples = 0
         lock.unlock()
         running = false
     }
@@ -170,7 +186,8 @@ final class HaruEngine: ObservableObject {
     @Published private(set) var status = "モデル未読み込み"
     @Published private(set) var lastText = ""
     @Published private(set) var lastFrameSamples = 0
-    @Published private(set) var diagnostics = "診断待機中"
+    @Published private(set) var inputDiagnostics = "入力: 診断待機中"
+    @Published private(set) var outputDiagnostics = "出力: 診断待機中"
     @Published private(set) var isModelLoaded = false
     @Published private(set) var isDialogueActive = false
     @Published private(set) var isAudioRunning = false
@@ -431,8 +448,9 @@ final class HaruEngine: ObservableObject {
                     guard let self else { return }
                     let queuedBeforePush = self.audioIO.queuedInputSamples()
                     let queuedMilliseconds = Double(queuedBeforePush) / self.audioIO.inputSampleRate * 1000.0
+                    let outputQueuedMilliseconds = self.audioIO.queuedOutputMilliseconds()
                     let dropped = self.audioIO.takeDroppedInputSamples()
-                    if queuedMilliseconds > 1_000 || dropped > 0 {
+                    if queuedMilliseconds + outputQueuedMilliseconds > 1_000 || dropped > 0 {
                         self.inputPump?.cancel()
                         self.inputPump = nil
                         var endError = [CChar](repeating: 0, count: 1024)
@@ -444,7 +462,7 @@ final class HaruEngine: ObservableObject {
                             self.isDialogueActive = false
                             self.isAudioRunning = false
                             self.status = "入力遅延が上限を超えたため停止しました。\(Int(queuedMilliseconds))ms / overflow \(dropped) samples"
-                            self.diagnostics = "入力遅延超過。端末が推論速度に追いついていません。"
+                            self.inputDiagnostics = "入力遅延超過。端末が推論速度に追いついていません。"
                         }
                         return
                     }
@@ -465,10 +483,11 @@ final class HaruEngine: ObservableObject {
                     }
                     let pushMilliseconds = Double(DispatchTime.now().uptimeNanoseconds - pushStart) / 1_000_000.0
                     DispatchQueue.main.async {
-                        self.diagnostics = String(format: "入力 %.0f ms / push %.0f ms / 初回破棄 %.0f ms",
-                                                  Double(pcm.count) / self.audioIO.inputSampleRate * 1000.0,
-                                                  pushMilliseconds,
-                                                  Double(startupSamplesDiscarded + discarded) / self.audioIO.inputSampleRate * 1000.0)
+                        self.inputDiagnostics = String(format: "入力 %.0f ms / push %.0f ms / 出力待ち %.0f ms / 初回破棄 %.0f ms",
+                                                        Double(pcm.count) / self.audioIO.inputSampleRate * 1000.0,
+                                                        pushMilliseconds,
+                                                        outputQueuedMilliseconds,
+                                                        Double(startupSamplesDiscarded + discarded) / self.audioIO.inputSampleRate * 1000.0)
                     }
                     if pushResult < 0 {
                         let detail = pushError.withUnsafeBufferPointer { $0.baseAddress.map { String(cString: $0) } ?? "" }
@@ -491,7 +510,7 @@ final class HaruEngine: ObservableObject {
                 DispatchQueue.main.async {
                     self.lastText = ""
                     self.lastFrameSamples = 0
-                    self.diagnostics = "初回入力破棄: \(Int(Double(startupSamplesDiscarded + discarded) / self.audioIO.inputSampleRate * 1000.0)) ms"
+                    self.inputDiagnostics = "初回入力破棄: \(Int(Double(startupSamplesDiscarded + discarded) / self.audioIO.inputSampleRate * 1000.0)) ms"
                     self.isDialogueActive = true
                     self.isAudioRunning = true
                     self.status = "会話中 — マイク入力・音声出力が有効です"
@@ -535,11 +554,11 @@ final class HaruEngine: ObservableObject {
             peak = max(peak, abs(value))
         }
         let rms = pcm.isEmpty ? 0 : sqrt(sumSquares / Double(pcm.count))
-        outputQueue.async { [weak self] in
-            self?.audioIO.play(samples: pcm)
-        }
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
+            self.outputQueue.async { [audioIO = self.audioIO] in
+                audioIO.play(samples: pcm)
+            }
             self.lastFrameSamples = count
             // The API returns text fragments per frame, not a complete transcript.
             // Concatenate them in callback order; do not overwrite with the latest fragment.
@@ -549,8 +568,8 @@ final class HaruEngine: ObservableObject {
                     self.lastText = String(self.lastText.suffix(8_000))
                 }
             }
-            self.diagnostics = String(format: "frame=%d / PCM=%d / RMS=%.4f / peak=%.4f / text=%d bytes",
-                                      count / 3_200, count, rms, peak, message.utf8.count)
+            self.outputDiagnostics = String(format: "PCM=%d / RMS=%.4f / peak=%.4f / text=%d bytes",
+                                             count, rms, peak, message.utf8.count)
         }
     }
 
