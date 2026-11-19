@@ -2,8 +2,8 @@
 
 Haru-4B を iPad / iPhone 上でローカル実行するための iOS プロジェクトです。
 
-> **Status: Native runtime built; app integration in progress**
-> speech.cpp 0.11.0 の iPhoneOS arm64 / iOS Simulator arm64 XCFramework は GitHub Actions でビルド・Artifact 化済みです。SwiftUI アプリと C API ブリッジの初期実装を追加しました。Haru GGUF の実機ロード、音声入出力、全二重対話はまだ実機検証前です。
+> **Status: iPhoneOS arm64 app integration implemented; physical-device validation pending**
+> SwiftUI アプリ、Haru Dialogue C API、マイク・スピーカー経路、キャラクタープロファイル、参照音声からのカスタムボイス登録を実装しています。GitHub Actions のビルド成功は、実機でのモデルロード・音声変換・全二重対話の成功を意味しません。
 
 ## Goal
 
@@ -23,19 +23,20 @@ Haru-4B を iPad / iPhone 上でローカル実行するための iOS プロジ�
 
 ```text
 SwiftUI app
-  ├─ Model file importer
+  ├─ Model installer / character profile store
+  ├─ Audio file importer (AVFoundation decode → mono 24 kHz PCM WAV)
   ├─ HaruEngine (serial inference queue)
   │    └─ Objective-C++ C ABI bridge
   │         └─ speech.cpp Haru dialogue API
   │              └─ ggml / Metal
-  └─ (next) AVAudioEngine + bounded input/output queues
+  └─ AVAudioEngine + bounded input/output queues
 
 Microphone ──> bounded audio input queue ──> Haru dialogue session
 Speaker   <── bounded audio output queue <── Haru generated audio
                          └──────────────> text events / UI
 ```
 
-The app automatically downloads the speech.cpp-compatible Haru-4B Q4_K GGUF on first launch, verifies its exact byte size and SHA-256, stores it in Application Support, and loads it before showing the dialogue test screen. Microphone capture and speaker playback are not wired yet.
+The app automatically downloads the speech.cpp-compatible Haru-4B Q4_K GGUF on first launch, verifies its exact byte size and SHA-256, stores it in Application Support, and loads it before showing the dialogue test screen. The app also imports audio formats that the device's AVFoundation decoder can read (for example WAV, M4A/AAC, MP3, AIFF and CAF), converts the selected reference to mono 24 kHz PCM WAV, and creates a model-compatible `.voice.gguf` locally. The voice file and Haru character-card fields are stored together as a reusable profile in Application Support. The original recording is not retained by the profile.
 
 ## Engineering principles
 
@@ -62,8 +63,9 @@ The app automatically downloads the speech.cpp-compatible Haru-4B Q4_K GGUF on f
 - [x] M0 — Verify upstream Haru and speech.cpp APIs, revisions, licenses, and iOS constraints
 - [x] M1 — Build a minimal iOS arm64 Metal runtime artifact (GitHub Actions build passed)
 - [ ] M2 — Load a compatible Haru model and run a non-audio smoke test on device
-- [ ] M3 — Connect the native dialogue API through a Swift wrapper (initial bridge/UI committed; compile/device validation pending)
-- [ ] M4 — Implement real-time microphone input and speaker output
+- [x] M3 — Connect the native dialogue API through a Swift wrapper (build validation pending)
+- [x] M4 — Implement real-time microphone input and speaker output (physical-device validation pending)
+- [x] M4a — Import reference audio, create voice files, and save voice + character-card profiles
 - [ ] M5 — Verify simultaneous listening/speaking and interruption behavior
 - [ ] M6 — Measure memory, latency, stability, and thermal behavior on M2 iPad Air
 - [ ] M7 — Package a reproducible Xcode project, tests, and setup documentation
@@ -76,7 +78,7 @@ The app automatically downloads the speech.cpp-compatible Haru-4B Q4_K GGUF on f
 bash Scripts/build-ios-runtime.sh
 ```
 
-The script pins speech.cpp commit `8d18924cd238b87c0297df112f7ff40783a6414f` (0.11.0 / C API 4.2), builds iPhoneOS arm64 and iOS Simulator arm64, and packages `SpeechCpp.xcframework`.
+The script pins speech.cpp commit `8d18924cd238b87c0297df112f7ff40783a6414f` (0.11.0 / C API 4.2), builds iPhoneOS arm64, and packages `SpeechCpp.xcframework`.
 
 The first GitHub Actions runtime build succeeded, including both platform slices and Artifact upload:
 
@@ -87,7 +89,7 @@ The uploaded Artifact is named `Haru4iOS-SpeechCpp-0.11.0`. It contains an outer
 
 ### App project
 
-The Xcode project is generated with XcodeGen. After building the runtime, copy the XCFramework into `Frameworks/`:
+The Xcode project is generated with XcodeGen. CI builds the iPhoneOS arm64 runtime and app:
 
 ```sh
 brew install cmake ninja xcodegen
@@ -102,11 +104,13 @@ GitHub Actions also performs this sequence in [the app build workflow](.github/w
 
 ## Current app scope
 
-- Select a local Haru GGUF file through the iOS document picker.
+- Install the pinned Haru-4B Q4_K GGUF from the configured model source.
 - Load the model through speech.cpp with the automatic device selection.
-- Start a Haru native dialogue session with Japanese character-card options.
-- Receive the dialogue frame callback and copy its PCM/text data.
-- Microphone capture, playback, route handling, interruption handling, and a complete full-duplex UI are next.
+- Edit and save character-card fields: name, persona, gender, backchannel, other name, relationship and situation.
+- Import reference audio accepted by AVFoundation, convert it to mono 24 kHz PCM WAV, create a `.voice.gguf`, and register it with the loaded model.
+- Save the custom voice file and character-card settings together in reusable profiles; register a saved voice lazily when its profile is selected after relaunch.
+- Start a Haru native dialogue session with the selected profile and receive frame PCM/text callbacks.
+- Physical-device validation of audio-format coverage, voice generation, memory use, latency, route changes, interruption handling and full-duplex stability remains outstanding.
 
 Do not assume every GGUF quantization fits the iPad's available memory. Begin with short dialogue limits and measure physical footprint on the actual device.
 
