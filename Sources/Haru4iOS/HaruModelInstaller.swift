@@ -54,6 +54,14 @@ final class HaruModelInstaller: NSObject, ObservableObject, URLSessionDownloadDe
     func installIfNeeded() {
         guard !started else { return }
         started = true
+
+        #if targetEnvironment(simulator)
+        // Simulator runs are for UI/startup crash diagnosis only. Never download
+        // the multi-gigabyte model or attempt inference in the simulator smoke test.
+        publish(status: "シミュレーター検証モード（モデル取得・推論は無効）", progress: 0, error: false)
+        return
+        #endif
+
         publish(status: "保存済みモデルを確認中…", progress: 0, error: false)
 
         let fileURL = destinationURL
