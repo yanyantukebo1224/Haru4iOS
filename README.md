@@ -35,7 +35,7 @@ Speaker   <── bounded audio output queue <── Haru generated audio
                          └──────────────> text events / UI
 ```
 
-The current app milestone includes model selection/loading and a native dialogue-start smoke-test UI. Microphone capture and speaker playback are not wired yet.
+The app automatically downloads the speech.cpp-compatible Haru-4B Q4_K GGUF on first launch, verifies its exact byte size and SHA-256, stores it in Application Support, and loads it before showing the dialogue test screen. Microphone capture and speaker playback are not wired yet.
 
 ## Engineering principles
 
@@ -54,7 +54,7 @@ The current app milestone includes model selection/loading and a native dialogue
 | Runtime | iOS / iPadOS native app |
 | Inference | speech.cpp Haru backend + ggml Metal |
 | Interaction | Native full-duplex streaming |
-| Network | Not required for inference; model acquisition may be optional |
+| Network | Required once to download the model; inference is local afterward |
 | UI | SwiftUI |
 
 ## Milestones
@@ -98,7 +98,7 @@ xcodegen generate
 xcodebuild -project Haru4iOS.xcodeproj -scheme Haru4iOS -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build
 ```
 
-GitHub Actions also performs this sequence in [the app build workflow](.github/workflows/build-ios-app.yml). A successful Simulator compile is not proof of model loading or real-time performance on an iPad.
+GitHub Actions also performs this sequence in [the app build workflow](.github/workflows/build-ios-app.yml). A successful Simulator compile is not proof of model loading or real-time performance on an iPad. The CI artifact is deliberately named `Haru4iOS-unsigned-for-signing.ipa`: it is a correctly structured, validated IPA container, but it is **not installable until it is signed with a provisioning profile and signing identity valid for the target device**. CI cannot manufacture those credentials. The previous artifact was also unsigned; the inability to install it was not a ZIP-layout issue.
 
 ## Current app scope
 
