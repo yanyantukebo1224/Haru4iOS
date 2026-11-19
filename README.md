@@ -69,6 +69,19 @@ This is a proposed integration boundary, not a claim that every component is alr
 - [ ] M6 — Measure memory, latency, stability, and thermal behavior on M2 iPad Air
 - [ ] M7 — Package a reproducible Xcode project, tests, and setup documentation
 
+## Experimental iOS runtime build
+
+An initial build script now targets speech.cpp 0.11.0 / C API 4.2 and packages the iPhoneOS arm64 + Simulator arm64 libraries into an XCFramework:
+
+```sh
+bash Scripts/build-ios-runtime.sh
+```
+
+Requirements on a local Mac: Apple Silicon, Xcode, Git, CMake, and Ninja. The script is experimental and has **not yet been validated by a successful iOS build**. A GitHub Actions workflow also attempts this build on pushes to `main` and can be run manually. A successful workflow artifact is not the same as a successful Haru model run on an iPad.
+
+- [Build script](Scripts/build-ios-runtime.sh)
+- [GitHub Actions workflow](.github/workflows/build-ios-runtime.yml)
+
 ## Repository policy
 
 - Do not commit model weights, recordings, signing assets, or generated build products.
