@@ -32,6 +32,20 @@ jobs:
           mkdir -p Frameworks
           cp -R Artifacts/SpeechCpp.xcframework Frameworks/SpeechCpp.xcframework
 
+      - name: Render app icon
+        run: |
+          python3 -m pip install --user cairosvg
+          python3 - <<'PY'
+          import cairosvg
+          cairosvg.svg2png(
+              url="Sources/Haru4iOS/Assets.xcassets/AppIcon.appiconset/AppIcon.svg",
+              write_to="Sources/Haru4iOS/Assets.xcassets/AppIcon.appiconset/AppIcon.png",
+              output_width=1024,
+              output_height=1024,
+          )
+          PY
+          sips -g pixelWidth -g pixelHeight Sources/Haru4iOS/Assets.xcassets/AppIcon.appiconset/AppIcon.png
+
       - name: Generate Xcode project
         run: xcodegen generate
 
