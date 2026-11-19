@@ -53,10 +53,31 @@ jobs:
           cd .build/DerivedData/Build/Products/Debug-iphonesimulator
           ditto -c -k --sequesterRsrc --keepParent Haru4iOS.app "$GITHUB_WORKSPACE/Haru4iOS-Simulator.app.zip"
 
-      - name: Upload app artifact
+      - name: Build iPhoneOS app (unsigned)
+        run: |
+          xcodebuild \
+            -project Haru4iOS.xcodeproj \
+            -scheme Haru4iOS \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath .build/DeviceData \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+
+      - name: Package unsigned IPA
+        run: |
+          mkdir -p .build/ipa/Payload
+          cp -R .build/DeviceData/Build/Products/Release-iphoneos/Haru4iOS.app .build/ipa/Payload/Haru4iOS.app
+          cd .build/ipa
+          zip -qr "$GITHUB_WORKSPACE/Haru4iOS-unsigned.ipa" Payload
+
+      - name: Upload app artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: Haru4iOS-Simulator-app
-          path: Haru4iOS-Simulator.app.zip
+          name: Haru4iOS-app-builds
+          path: |
+            Haru4iOS-Simulator.app.zip
+            Haru4iOS-unsigned.ipa
           if-no-files-found: error
           retention-days: 14
