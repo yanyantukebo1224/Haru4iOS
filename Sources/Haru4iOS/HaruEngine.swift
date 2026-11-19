@@ -16,7 +16,7 @@ private final class HaruRuntimeHandle: @unchecked Sendable {
 
 /// Bounded microphone ring buffer. The AVAudioEngine tap only copies samples;
 /// all model inference is performed by HaruEngine's serial worker queue.
-private final class HaruAudioIO {
+private final class HaruAudioIO: @unchecked Sendable {
     private let engine = AVAudioEngine()
     private let player = AVAudioPlayerNode()
     private let lock = NSLock()
@@ -145,10 +145,11 @@ private final class HaruAudioIO {
         lock.lock()
         queuedOutputSamples += samples.count
         lock.unlock()
+        let scheduledSampleCount = samples.count
         player.scheduleBuffer(buffer, completionHandler: { [weak self] in
             guard let self else { return }
             self.lock.lock()
-            self.queuedOutputSamples = max(0, self.queuedOutputSamples - samples.count)
+            self.queuedOutputSamples = max(0, self.queuedOutputSamples - scheduledSampleCount)
             self.lock.unlock()
         })
     }
@@ -190,6 +191,7 @@ final class HaruEngine: ObservableObject {
     @Published private(set) var outputDiagnostics = "出力: 診断待機中"
     @Published private(set) var isModelLoaded = false
     @Published private(set) var isDialogueActive = false
+    @Published private(set) var isDialogueStarting = false
     @Published private(set) var isAudioRunning = false
 
     private let worker = DispatchQueue(label: "dev.haru4ios.inference", qos: .userInitiated)
@@ -385,12 +387,16 @@ final class HaruEngine: ObservableObject {
             status = "先にHaru GGUFモデルを読み込んでください"
             return
         }
-        guard !isDialogueActive else { return }
+        guard !isDialogueActive, !isDialogueStarting else { return }
+        isDialogueStarting = true
         status = "マイクを準備中…"
         AVAudioSession.sharedInstance().requestRecordPermission { [weak self] granted in
             guard let self else { return }
             guard granted else {
-                DispatchQueue.main.async { self.status = "マイクへのアクセスが許可されていません" }
+                DispatchQueue.main.async {
+                    self.isDialogueStarting = false
+                    self.status = "マイクへのアクセスが許可されていません"
+                }
                 return
             }
             let handle = HaruRuntimeHandle(runtime)
@@ -399,14 +405,16 @@ final class HaruEngine: ObservableObject {
                 do {
                     try self.audioIO.start()
                 } catch {
-                    DispatchQueue.main.async { self.status = "オーディオ開始失敗: \(error.localizedDescription)" }
+                    DispatchQueue.main.async {
+                        self.isDialogueStarting = false
+                        self.status = "オーディオ開始失敗: \(error.localizedDescription)"
+                    }
                     return
                 }
 
                 // The official CLI discards samples captured while start()
                 // computes its first frame. Do the same immediately after it
                 // returns, before starting the input pump.
-                let startupSamplesDiscarded = self.audioIO.queuedInputSamples()
                 var error = [CChar](repeating: 0, count: 1024)
                 let context = Unmanaged.passUnretained(self).toOpaque()
                 let sampleRate = Int32(self.audioIO.inputSampleRate.rounded())
@@ -437,11 +445,15 @@ final class HaruEngine: ObservableObject {
                 let message = error.withUnsafeBufferPointer { $0.baseAddress.map { String(cString: $0) } ?? "" }
                 guard result == 0 else {
                     self.audioIO.stop()
-                    DispatchQueue.main.async { self.status = "対話開始失敗: \(message) (code \(result))" }
+                    DispatchQueue.main.async {
+                        self.isDialogueStarting = false
+                        self.status = "対話開始失敗: \(message) (code \(result))"
+                    }
                     return
                 }
 
                 let discarded = self.audioIO.discardPendingInput()
+                let startupOverflow = self.audioIO.takeDroppedInputSamples()
                 let timer = DispatchSource.makeTimerSource(queue: self.worker)
                 timer.schedule(deadline: .now(), repeating: .milliseconds(20), leeway: .milliseconds(3))
                 timer.setEventHandler { [weak self, handle] in
@@ -459,6 +471,7 @@ final class HaruEngine: ObservableObject {
                         }
                         self.outputQueue.sync { self.audioIO.stop() }
                         DispatchQueue.main.async {
+                            self.isDialogueStarting = false
                             self.isDialogueActive = false
                             self.isAudioRunning = false
                             self.status = "入力遅延が上限を超えたため停止しました。\(Int(queuedMilliseconds))ms / overflow \(dropped) samples"
@@ -487,7 +500,7 @@ final class HaruEngine: ObservableObject {
                                                         Double(pcm.count) / self.audioIO.inputSampleRate * 1000.0,
                                                         pushMilliseconds,
                                                         outputQueuedMilliseconds,
-                                                        Double(startupSamplesDiscarded + discarded) / self.audioIO.inputSampleRate * 1000.0)
+                                                        Double(discarded) / self.audioIO.inputSampleRate * 1000.0)
                     }
                     if pushResult < 0 {
                         let detail = pushError.withUnsafeBufferPointer { $0.baseAddress.map { String(cString: $0) } ?? "" }
@@ -499,6 +512,7 @@ final class HaruEngine: ObservableObject {
                         }
                         self.outputQueue.sync { self.audioIO.stop() }
                         DispatchQueue.main.async {
+                            self.isDialogueStarting = false
                             self.isDialogueActive = false
                             self.isAudioRunning = false
                             self.status = "音声処理エラー: \(detail) (code \(pushResult))"
@@ -510,7 +524,7 @@ final class HaruEngine: ObservableObject {
                 DispatchQueue.main.async {
                     self.lastText = ""
                     self.lastFrameSamples = 0
-                    self.inputDiagnostics = "初回入力破棄: \(Int(Double(startupSamplesDiscarded + discarded) / self.audioIO.inputSampleRate * 1000.0)) ms"
+                    self.inputDiagnostics = "初回入力破棄: \(Int(Double(discarded) / self.audioIO.inputSampleRate * 1000.0)) ms / 起動中overflow \(startupOverflow)"
                     self.isDialogueActive = true
                     self.isAudioRunning = true
                     self.status = "会話中 — マイク入力・音声出力が有効です"
