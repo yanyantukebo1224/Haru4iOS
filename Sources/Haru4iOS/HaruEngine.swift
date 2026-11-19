@@ -144,6 +144,7 @@ final class HaruEngine: ObservableObject {
     private let audioIO = HaruAudioIO()
     private var runtime: OpaquePointer?
     private var modelPath: String?
+    private var registeredVoiceKeys = Set<String>()
     private var inputPump: DispatchSourceTimer?
 
     init() {
@@ -278,7 +279,23 @@ final class HaruEngine: ObservableObject {
         try output.write(from: converted)
     }
 
-    func startDialogue(profile: CharacterProfile) {
+    func startDialogue(profile: CharacterProfile, voiceURL: URL?) {
+        guard profile.hasVoice else { beginDialogue(profile: profile); return }
+        if registeredVoiceKeys.contains(profile.voiceKey) {
+            beginDialogue(profile: profile)
+            return
+        }
+        guard let voiceURL else { status = "保存済みボイスファイルが見つかりません"; return }
+        registerVoice(name: profile.voiceKey, at: voiceURL) { [weak self] result in
+            guard let self else { return }
+            switch result {
+            case .success: self.beginDialogue(profile: profile)
+            case .failure(let error): self.status = "ボイス読み込み失敗: " + error.localizedDescription
+            }
+        }
+    }
+
+    private func beginDialogue(profile: CharacterProfile) {
         guard let runtime, isModelLoaded else {
             status = "先にHaru GGUFモデルを読み込んでください"
             return
@@ -400,7 +417,7 @@ final class HaruEngine: ObservableObject {
         }
     }
 
-    func startDialogue() { startDialogue(profile: CharacterProfile()) }
+    func startDialogue() { beginDialogue(profile: CharacterProfile()) }
 
     deinit {
         inputPump?.cancel()
