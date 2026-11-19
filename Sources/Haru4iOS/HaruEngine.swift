@@ -195,8 +195,8 @@ final class HaruEngine: ObservableObject {
     @Published private(set) var isAudioRunning = false
 
     private let worker = DispatchQueue(label: "dev.haru4ios.inference", qos: .userInitiated)
-    private let outputQueue = DispatchQueue(label: "dev.haru4ios.output", qos: .userInitiated)
-    private let audioIO = HaruAudioIO()
+    nonisolated(unsafe) private let outputQueue = DispatchQueue(label: "dev.haru4ios.output", qos: .userInitiated)
+    nonisolated(unsafe) private let audioIO = HaruAudioIO()
     private var runtime: OpaquePointer?
     private var modelPath: String?
     private var registeredVoiceKeys = Set<String>()
@@ -389,6 +389,8 @@ final class HaruEngine: ObservableObject {
         }
         guard !isDialogueActive, !isDialogueStarting else { return }
         isDialogueStarting = true
+        lastText = ""
+        lastFrameSamples = 0
         status = "マイクを準備中…"
         AVAudioSession.sharedInstance().requestRecordPermission { [weak self] granted in
             guard let self else { return }
@@ -522,8 +524,6 @@ final class HaruEngine: ObservableObject {
                 self.inputPump = timer
                 timer.resume()
                 DispatchQueue.main.async {
-                    self.lastText = ""
-                    self.lastFrameSamples = 0
                     self.inputDiagnostics = "初回入力破棄: \(Int(Double(discarded) / self.audioIO.inputSampleRate * 1000.0)) ms / 起動中overflow \(startupOverflow)"
                     self.isDialogueActive = true
                     self.isAudioRunning = true
@@ -568,11 +568,11 @@ final class HaruEngine: ObservableObject {
             peak = max(peak, abs(value))
         }
         let rms = pcm.isEmpty ? 0 : sqrt(sumSquares / Double(pcm.count))
+        outputQueue.async { [audioIO] in
+            audioIO.play(samples: pcm)
+        }
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
-            self.outputQueue.async { [audioIO = self.audioIO] in
-                audioIO.play(samples: pcm)
-            }
             self.lastFrameSamples = count
             // The API returns text fragments per frame, not a complete transcript.
             // Concatenate them in callback order; do not overwrite with the latest fragment.
