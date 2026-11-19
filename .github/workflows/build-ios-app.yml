@@ -22,8 +22,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Install build tools
-        run: |
-          brew install cmake ninja xcodegen
+        run: brew install cmake ninja xcodegen
 
       - name: Build speech.cpp XCFramework
         run: bash Scripts/build-ios-runtime.sh
@@ -65,12 +64,19 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             build
 
-      - name: Package unsigned IPA
+      - name: Package and validate unsigned IPA
         run: |
+          APP=".build/DeviceData/Build/Products/Release-iphoneos/Haru4iOS.app"
+          test -d "$APP"
+          test -f "$APP/Info.plist"
+          plutil -lint "$APP/Info.plist"
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP/Info.plist"
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$APP/Info.plist"
           mkdir -p .build/ipa/Payload
-          cp -R .build/DeviceData/Build/Products/Release-iphoneos/Haru4iOS.app .build/ipa/Payload/Haru4iOS.app
+          cp -R "$APP" .build/ipa/Payload/Haru4iOS.app
           cd .build/ipa
-          zip -qr "$GITHUB_WORKSPACE/Haru4iOS-unsigned.ipa" Payload
+          ditto -c -k --sequesterRsrc --keepParent Payload "$GITHUB_WORKSPACE/Haru4iOS-unsigned-for-signing.ipa"
+          unzip -t "$GITHUB_WORKSPACE/Haru4iOS-unsigned-for-signing.ipa"
 
       - name: Upload app artifacts
         uses: actions/upload-artifact@v4
@@ -78,6 +84,6 @@ jobs:
           name: Haru4iOS-app-builds
           path: |
             Haru4iOS-Simulator.app.zip
-            Haru4iOS-unsigned.ipa
+            Haru4iOS-unsigned-for-signing.ipa
           if-no-files-found: error
           retention-days: 14
