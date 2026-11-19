@@ -13,6 +13,7 @@ struct CharacterProfile: Identifiable, Codable, Equatable {
     var situation: String = ""
     var voiceKey: String = ""
     var voiceFileName: String = ""
+    var sourceAudioFileName: String? = nil
 
     var hasVoice: Bool { !voiceKey.isEmpty && !voiceFileName.isEmpty }
 }
@@ -58,6 +59,9 @@ final class CharacterProfileStore: ObservableObject {
         guard profiles.count > 1, let id = selectedID,
               let item = profiles.first(where: { $0.id == id }) else { return }
         if item.hasVoice { try? FileManager.default.removeItem(at: voiceURL(for: item)) }
+        if let sourceName = item.sourceAudioFileName {
+            try? FileManager.default.removeItem(at: directory.appendingPathComponent(sourceName))
+        }
         profiles.removeAll { $0.id == id }
         selectedID = profiles.first?.id
         persist()
@@ -72,14 +76,23 @@ final class CharacterProfileStore: ObservableObject {
         return (directory.appendingPathComponent(key + ".voice.gguf"), key)
     }
 
-    func setVoice(for id: UUID, key: String, fileName: String) {
+    func sourceAudioDestination(for key: String, fileExtension: String) -> URL {
+        directory.appendingPathComponent(key + "." + fileExtension)
+    }
+
+    func setVoice(for id: UUID, key: String, fileName: String, sourceAudioFileName: String) {
         guard let index = profiles.firstIndex(where: { $0.id == id }) else { return }
-        let oldName = profiles[index].voiceFileName
+        let oldVoice = profiles[index].voiceFileName
+        let oldSource = profiles[index].sourceAudioFileName
         profiles[index].voiceKey = key
         profiles[index].voiceFileName = fileName
+        profiles[index].sourceAudioFileName = sourceAudioFileName
         persist()
-        if !oldName.isEmpty && oldName != fileName {
-            try? FileManager.default.removeItem(at: directory.appendingPathComponent(oldName))
+        if !oldVoice.isEmpty && oldVoice != fileName {
+            try? FileManager.default.removeItem(at: directory.appendingPathComponent(oldVoice))
+        }
+        if let oldSource, oldSource != sourceAudioFileName {
+            try? FileManager.default.removeItem(at: directory.appendingPathComponent(oldSource))
         }
     }
 
