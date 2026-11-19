@@ -42,23 +42,6 @@ jobs:
       - name: Generate Xcode project
         run: xcodegen generate
 
-      - name: Build iOS Simulator app
-        run: |
-          xcodebuild \
-            -project Haru4iOS.xcodeproj \
-            -scheme Haru4iOS \
-            -configuration Debug \
-            -sdk iphonesimulator \
-            -destination 'generic/platform=iOS Simulator' \
-            -derivedDataPath .build/DerivedData \
-            CODE_SIGNING_ALLOWED=NO \
-            build
-
-      - name: Package simulator app
-        run: |
-          cd .build/DerivedData/Build/Products/Debug-iphonesimulator
-          ditto -c -k --sequesterRsrc --keepParent Haru4iOS.app "$GITHUB_WORKSPACE/Haru4iOS-Simulator.app.zip"
-
       - name: Build iPhoneOS app (unsigned)
         run: |
           xcodebuild \
@@ -91,7 +74,6 @@ jobs:
         with:
           name: Haru4iOS-app-builds
           path: |
-            Haru4iOS-Simulator.app.zip
             Haru4iOS-unsigned-for-signing.ipa
           if-no-files-found: error
           retention-days: 14
