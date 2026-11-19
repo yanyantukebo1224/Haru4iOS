@@ -464,23 +464,9 @@ final class HaruEngine: ObservableObject {
                     let queuedMilliseconds = Double(queuedBeforePush) / self.audioIO.inputSampleRate * 1000.0
                     let outputQueuedMilliseconds = self.audioIO.queuedOutputMilliseconds()
                     let dropped = self.audioIO.takeDroppedInputSamples()
-                    if queuedMilliseconds + outputQueuedMilliseconds > 1_000 || dropped > 0 {
-                        self.inputPump?.cancel()
-                        self.inputPump = nil
-                        var endError = [CChar](repeating: 0, count: 1024)
-                        _ = endError.withUnsafeMutableBufferPointer {
-                            HaruRuntimeEndDialogue(handle.pointer, $0.baseAddress, $0.count)
-                        }
-                        self.outputQueue.sync { self.audioIO.stop() }
-                        DispatchQueue.main.async {
-                            self.isDialogueStarting = false
-                            self.isDialogueActive = false
-                            self.isAudioRunning = false
-                            self.status = "入力遅延が上限を超えたため停止しました。\(Int(queuedMilliseconds))ms / overflow \(dropped) samples"
-                            self.inputDiagnostics = "入力遅延超過。端末が推論速度に追いついていません。"
-                        }
-                        return
-                    }
+                    // Temporary input/output backlog and ring-buffer overflow are
+                    // diagnostics, not fatal dialogue errors. Keep the session alive;
+                    // the ring buffer preserves the newest audio when it is full.
 
                     // Drain the complete currently queued segment. Sending only
                     // 20 ms after a long inference stall makes the app remain
@@ -498,11 +484,13 @@ final class HaruEngine: ObservableObject {
                     }
                     let pushMilliseconds = Double(DispatchTime.now().uptimeNanoseconds - pushStart) / 1_000_000.0
                     DispatchQueue.main.async {
-                        self.inputDiagnostics = String(format: "入力 %.0f ms / push %.0f ms / 出力待ち %.0f ms / 初回破棄 %.0f ms",
+                        let droppedMilliseconds = Double(dropped) / self.audioIO.inputSampleRate * 1000.0
+                        self.inputDiagnostics = String(format: "入力 %.0f ms / push %.0f ms / 出力待ち %.0f ms / 初回破棄 %.0f ms / 欠落 %.0f ms",
                                                         Double(pcm.count) / self.audioIO.inputSampleRate * 1000.0,
                                                         pushMilliseconds,
                                                         outputQueuedMilliseconds,
-                                                        Double(discarded) / self.audioIO.inputSampleRate * 1000.0)
+                                                        Double(discarded) / self.audioIO.inputSampleRate * 1000.0,
+                                                        droppedMilliseconds)
                     }
                     if pushResult < 0 {
                         let detail = pushError.withUnsafeBufferPointer { $0.baseAddress.map { String(cString: $0) } ?? "" }
