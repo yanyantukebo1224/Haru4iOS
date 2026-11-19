@@ -17,6 +17,7 @@ final class HaruModelInstaller: NSObject, ObservableObject, URLSessionDownloadDe
     private static let expectedBytes: Int64 = 4_522_673_920
     private static let expectedSHA256 =
         "e0e5fdd049b41c0510cac04f30468795565ec7f532aeb4552730d75406be19df"
+    private static let verifiedModelDefaultsKey = "Haru4iOS.VerifiedModelSHA256.v1"
 
     private let fileManager = FileManager.default
     private var session: URLSession!
@@ -49,17 +50,28 @@ final class HaruModelInstaller: NSObject, ObservableObject, URLSessionDownloadDe
     func installIfNeeded() {
         guard !started else { return }
         started = true
-        publish(status: "保存済みモデルを検証中…", progress: 0, error: false)
+        publish(status: "保存済みモデルを確認中…", progress: 0, error: false)
 
         let fileURL = destinationURL
+        // Once the exact model has passed SHA-256 verification, persist that fact.
+        // Future launches only check the marker and file existence; they do not re-hash 4.5 GB.
+        if fileManager.fileExists(atPath: fileURL.path),
+           UserDefaults.standard.string(forKey: Self.verifiedModelDefaultsKey) == Self.expectedSHA256 {
+            publish(status: "検証済みモデルを読み込み中…", progress: 1, error: false)
+            modelURL = fileURL
+            return
+        }
+
         DispatchQueue.global(qos: .utility).async { [weak self] in
             let valid = self?.isValidModel(at: fileURL) == true
             DispatchQueue.main.async {
                 guard let self else { return }
                 if valid {
-                    self.publish(status: "モデル確認完了。読み込み中…", progress: 1, error: false)
+                    UserDefaults.standard.set(Self.expectedSHA256, forKey: Self.verifiedModelDefaultsKey)
+                    self.publish(status: "初回検証完了。モデルを読み込み中…", progress: 1, error: false)
                     self.modelURL = fileURL
                 } else {
+                    UserDefaults.standard.removeObject(forKey: Self.verifiedModelDefaultsKey)
                     self.beginDownload()
                 }
             }
@@ -130,13 +142,15 @@ final class HaruModelInstaller: NSObject, ObservableObject, URLSessionDownloadDe
                     try? self.fileManager.removeItem(at: self.destinationURL)
                     try self.fileManager.moveItem(at: stagingURL, to: self.destinationURL)
                     DispatchQueue.main.async {
+                        UserDefaults.standard.set(Self.expectedSHA256, forKey: Self.verifiedModelDefaultsKey)
                         self.downloadTask = nil
-                        self.publish(status: "モデル取得完了。読み込み中…", progress: 1, error: false)
+                        self.publish(status: "初回検証完了。モデルを読み込み中…", progress: 1, error: false)
                         self.modelURL = self.destinationURL
                     }
                 } catch {
                     try? self.fileManager.removeItem(at: stagingURL)
                     DispatchQueue.main.async {
+                        UserDefaults.standard.removeObject(forKey: Self.verifiedModelDefaultsKey)
                         self.downloadTask = nil
                         self.fail("モデル検証に失敗しました: \(error.localizedDescription)")
                     }
