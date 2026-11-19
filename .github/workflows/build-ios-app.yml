@@ -79,6 +79,7 @@ jobs:
           plutil -lint "$APP/Info.plist"
           /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP/Info.plist"
           /usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$APP/Info.plist"
+          test -f "$APP/Haru4iOS"
           mkdir -p .build/ipa/Payload
           cp -R "$APP" .build/ipa/Payload/Haru4iOS.app
           cd .build/ipa
