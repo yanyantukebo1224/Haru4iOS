@@ -33,6 +33,10 @@ final class HaruModelInstaller: NSObject, ObservableObject, URLSessionDownloadDe
         modelDirectory.appendingPathComponent(Self.modelFileName)
     }
 
+    private var stagingURL: URL {
+        modelDirectory.appendingPathComponent(Self.modelFileName + ".partial")
+    }
+
     private var resumeDataURL: URL {
         modelDirectory.appendingPathComponent("HaruModelDownload.resume")
     }
@@ -62,15 +66,29 @@ final class HaruModelInstaller: NSObject, ObservableObject, URLSessionDownloadDe
             return
         }
 
+        let partialURL = stagingURL
         DispatchQueue.global(qos: .utility).async { [weak self] in
-            let valid = self?.isValidModel(at: fileURL) == true
+            guard let self else { return }
+            let destinationValid = self.isValidModel(at: fileURL)
+            let partialExists = self.fileManager.fileExists(atPath: partialURL.path)
+            let partialValid = !destinationValid && partialExists && self.isValidModel(at: partialURL)
             DispatchQueue.main.async {
-                guard let self else { return }
-                if valid {
+                if destinationValid {
                     UserDefaults.standard.set(Self.expectedSHA256, forKey: Self.verifiedModelDefaultsKey)
                     self.publish(status: "初回検証完了。モデルを読み込み中…", progress: 1, error: false)
                     self.modelURL = fileURL
+                } else if partialValid {
+                    do {
+                        try? self.fileManager.removeItem(at: fileURL)
+                        try self.fileManager.moveItem(at: partialURL, to: fileURL)
+                        UserDefaults.standard.set(Self.expectedSHA256, forKey: Self.verifiedModelDefaultsKey)
+                        self.publish(status: "中断前のダウンロードを復旧しました。モデルを読み込み中…", progress: 1, error: false)
+                        self.modelURL = fileURL
+                    } catch {
+                        self.beginDownload()
+                    }
                 } else {
+                    if partialExists { try? self.fileManager.removeItem(at: partialURL) }
                     UserDefaults.standard.removeObject(forKey: Self.verifiedModelDefaultsKey)
                     self.beginDownload()
                 }
@@ -125,7 +143,7 @@ final class HaruModelInstaller: NSObject, ObservableObject, URLSessionDownloadDe
         didFinishDownloadingTo location: URL
     ) {
         do {
-            let stagingURL = modelDirectory.appendingPathComponent(Self.modelFileName + ".partial")
+            let stagingURL = self.stagingURL
             try? fileManager.removeItem(at: stagingURL)
             try fileManager.moveItem(at: location, to: stagingURL)
             try? fileManager.removeItem(at: resumeDataURL)
