@@ -2,6 +2,13 @@ name: Build Haru4iOS app
 
 on:
   workflow_dispatch:
+  pull_request:
+    branches: [main]
+    paths:
+      - "Sources/**"
+      - "Scripts/**"
+      - "project.yml"
+      - ".github/workflows/build-ios-app.yml"
   push:
     branches: [main]
     paths:
@@ -20,6 +27,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Check full-duplex audio pipeline invariants
+        run: python3 Scripts/check-duplex-audio.py
 
       - name: Install build tools
         run: brew install cmake ninja xcodegen librsvg
