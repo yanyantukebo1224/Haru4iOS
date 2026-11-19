@@ -143,6 +143,7 @@ final class HaruEngine: ObservableObject {
     private let worker = DispatchQueue(label: "dev.haru4ios.inference", qos: .userInitiated)
     private let audioIO = HaruAudioIO()
     private var runtime: OpaquePointer?
+    private var modelPath: String?
     private var inputPump: DispatchSourceTimer?
 
     init() {
@@ -153,6 +154,7 @@ final class HaruEngine: ObservableObject {
     func loadModel(at url: URL) {
         guard let runtime else { status = "ランタイムが初期化されていません"; return }
         status = "モデルを読み込み中…"
+        modelPath = url.path
         let handle = HaruRuntimeHandle(runtime)
         worker.async { [weak self, handle] in
             guard let self else { return }
@@ -177,7 +179,7 @@ final class HaruEngine: ObservableObject {
         }
     }
 
-    func startDialogue() {
+    func startDialogue(profile: CharacterProfile) {
         guard let runtime, isModelLoaded else {
             status = "先にHaru GGUFモデルを読み込んでください"
             return
@@ -204,15 +206,24 @@ final class HaruEngine: ObservableObject {
                 let context = Unmanaged.passUnretained(self).toOpaque()
                 let sampleRate = Int32(self.audioIO.inputSampleRate.rounded())
                 let result = "ja".withCString { language in
-                    "ハル".withCString { name in
-                        "日本語で自然に会話する、親しみやすく反応のよい対話相手。".withCString { persona in
-                            "あなた".withCString { otherName in
-                                error.withUnsafeMutableBufferPointer {
-                                    HaruRuntimeStartDialogue(
-                                        handle.pointer, sampleRate, language, name,
-                                        persona, otherName, 30.0, 1, haruFrameCallback,
-                                        context, $0.baseAddress, $0.count
-                                    )
+                    profile.name.withCString { name in
+                        profile.persona.withCString { persona in
+                            profile.otherName.withCString { otherName in
+                                profile.gender.withCString { gender in
+                                    profile.backchannel.withCString { backchannel in
+                                        profile.relationship.withCString { relationship in
+                                            profile.situation.withCString { situation in
+                                                profile.voiceKey.withCString { voice in
+                                                    error.withUnsafeMutableBufferPointer {
+                                                        HaruRuntimeStartDialogue(handle.pointer, sampleRate, language, name,
+                                                            persona, otherName, gender, backchannel, relationship, situation,
+                                                            voice, 30.0, 1, haruFrameCallback, context,
+                                                            $0.baseAddress, $0.count)
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -289,6 +300,8 @@ final class HaruEngine: ObservableObject {
             if !message.isEmpty { self.lastText = message }
         }
     }
+
+    func startDialogue() { startDialogue(profile: CharacterProfile()) }
 
     deinit {
         inputPump?.cancel()
