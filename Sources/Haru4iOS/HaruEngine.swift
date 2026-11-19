@@ -203,7 +203,7 @@ final class HaruEngine: ObservableObject {
                     self.registeredVoiceKeys.insert(name)
                     completion(.success(()))
                 } else {
-                    completion(.failure(NSError(domain: "HaruVoice", code: result,
+                    completion(.failure(NSError(domain: "HaruVoice", code: Int(result),
                         userInfo: [NSLocalizedDescriptionKey: message])))
                 }
             }
