@@ -15,6 +15,11 @@ private let haruFrameCallback: HaruFrameCallback = { samples, count, text, conte
     return 0
 }
 
+private final class HaruRuntimeHandle: @unchecked Sendable {
+    let pointer: OpaquePointer
+    init(_ pointer: OpaquePointer) { self.pointer = pointer }
+}
+
 @MainActor
 final class HaruEngine: ObservableObject {
     @Published private(set) var status = "モデル未読み込み"
@@ -39,13 +44,14 @@ final class HaruEngine: ObservableObject {
             return
         }
         status = "モデルを読み込み中…"
-        worker.async { [weak self] in
+        let handle = HaruRuntimeHandle(runtime)
+        worker.async { [weak self, handle] in
             guard let self else { return }
             var error = [CChar](repeating: 0, count: 1024)
             let result = url.path.withCString { path in
                 "auto".withCString { device in
                     error.withUnsafeMutableBufferPointer { buffer in
-                        HaruRuntimeLoadModel(runtime, path, device, 4, buffer.baseAddress, buffer.count)
+                        HaruRuntimeLoadModel(handle.pointer, path, device, 4, buffer.baseAddress, buffer.count)
                     }
                 }
             }
@@ -69,7 +75,8 @@ final class HaruEngine: ObservableObject {
             return
         }
         status = "対話セッションを開始中…"
-        worker.async { [weak self] in
+        let handle = HaruRuntimeHandle(runtime)
+        worker.async { [weak self, handle] in
             guard let self else { return }
             var error = [CChar](repeating: 0, count: 1024)
             let context = Unmanaged.passUnretained(self).toOpaque()
@@ -79,7 +86,7 @@ final class HaruEngine: ObservableObject {
                         "あなた".withCString { otherName in
                             error.withUnsafeMutableBufferPointer { buffer in
                                 HaruRuntimeStartDialogue(
-                                    runtime, 24_000, language, name, persona, otherName,
+                                    handle.pointer, 24_000, language, name, persona, otherName,
                                     30.0, 1, haruFrameCallback, context,
                                     buffer.baseAddress, buffer.count
                                 )
@@ -104,11 +111,12 @@ final class HaruEngine: ObservableObject {
 
     func stopDialogue() {
         guard let runtime, isDialogueActive else { return }
-        worker.async { [weak self] in
+        let handle = HaruRuntimeHandle(runtime)
+        worker.async { [weak self, handle] in
             guard let self else { return }
             var error = [CChar](repeating: 0, count: 1024)
             let result = error.withUnsafeMutableBufferPointer { buffer in
-                HaruRuntimeEndDialogue(runtime, buffer.baseAddress, buffer.count)
+                HaruRuntimeEndDialogue(handle.pointer, buffer.baseAddress, buffer.count)
             }
             let message = error.withUnsafeBufferPointer { buffer in
                 buffer.baseAddress.map { String(cString: $0) } ?? ""
