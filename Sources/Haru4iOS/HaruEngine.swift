@@ -198,7 +198,7 @@ final class HaruEngine: ObservableObject {
 
                 var error = [CChar](repeating: 0, count: 1024)
                 let context = Unmanaged.passUnretained(self).toOpaque()
-                let sampleRate = Int(self.audioIO.inputSampleRate.rounded())
+                let sampleRate = Int32(self.audioIO.inputSampleRate.rounded())
                 let result = "ja".withCString { language in
                     "ハル".withCString { name in
                         "日本語で自然に会話する、親しみやすく反応のよい対話相手。".withCString { persona in
