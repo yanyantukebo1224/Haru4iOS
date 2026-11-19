@@ -1,0 +1,62 @@
+name: Build Haru4iOS app
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "Sources/**"
+      - "project.yml"
+      - "Scripts/build-ios-runtime.sh"
+      - ".github/workflows/build-ios-app.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  build-app:
+    runs-on: macos-26
+    timeout-minutes: 120
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install build tools
+        run: |
+          brew install cmake ninja xcodegen
+
+      - name: Build speech.cpp XCFramework
+        run: bash Scripts/build-ios-runtime.sh
+
+      - name: Prepare framework
+        run: |
+          mkdir -p Frameworks
+          cp -R Artifacts/SpeechCpp.xcframework Frameworks/SpeechCpp.xcframework
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      - name: Build iOS Simulator app
+        run: |
+          xcodebuild \
+            -project Haru4iOS.xcodeproj \
+            -scheme Haru4iOS \
+            -configuration Debug \
+            -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath .build/DerivedData \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+
+      - name: Package simulator app
+        run: |
+          cd .build/DerivedData/Build/Products/Debug-iphonesimulator
+          ditto -c -k --sequesterRsrc --keepParent Haru4iOS.app "$GITHUB_WORKSPACE/Haru4iOS-Simulator.app.zip"
+
+      - name: Upload app artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Haru4iOS-Simulator-app
+          path: Haru4iOS-Simulator.app.zip
+          if-no-files-found: error
+          retention-days: 14
