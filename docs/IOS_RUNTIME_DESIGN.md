@@ -1,6 +1,6 @@
 # iOS runtime design
 
-Status: source-level design based on the current speech.cpp 0.11.0 source. No iOS build or iPad execution has been verified yet.
+Status: speech.cpp 0.11.0 iPhoneOS arm64 and iOS Simulator arm64 XCFramework build has succeeded in GitHub Actions. A first Objective-C++ bridge, Swift coordinator, and SwiftUI smoke-test screen are committed. Haru GGUF loading and dialogue execution on a physical iPad are not yet verified.
 
 ## Confirmed upstream API
 
@@ -94,18 +94,18 @@ Use the Irodori iPhone project as a **packaging reference only**:
 
 Do not reuse Irodori's prebuilt runtime: its documented build pins speech.cpp 0.8.10, while Haru's dialogue API is present in the current 0.11.0 / C API 4.2 source. Rebuild from a Haru-capable revision.
 
-The exact ggml submodule revision, iOS Metal build flags, deployment target, and any required mobile patches must be recorded only after a reproducible build succeeds.
+The pinned speech.cpp source and its recursive submodules built successfully in GitHub Actions with the current iOS Metal flags and iOS 17 deployment target. The resulting XCFramework contains arm64 device and arm64 simulator slices. This confirms compilation and packaging, not runtime compatibility on an iPad.
 
 ## Implementation sequence
 
-1. Build a minimal iOS arm64 speech.cpp framework with Haru enabled and Metal embedded.
-2. Add a native smoke test that reports speech.cpp version, API version, device list, and model metadata without loading the full weights.
-3. Load the selected GGUF and report peak app physical footprint.
-4. Add a Swift wrapper for model/request/dialogue lifetime and C callback ownership.
-5. Test dialogue start and replay a known audio fixture through push; verify frame count, 24 kHz output, and callback text.
-6. Connect AVAudioEngine input/output using bounded buffers.
-7. Test simultaneous capture/playback, interruptions, route changes, background/foreground transitions, and sustained sessions.
-8. Benchmark on the physical M2 iPad Air: p50/p95/p99 frame time, real-time factor, input queue delay, output underruns, RAM, and thermal state.
+1. [x] Build a minimal iOS arm64 speech.cpp framework with Haru enabled and Metal embedded.
+2. [x] Add the Objective-C++ C ABI bridge and Swift coordinator for model/dialogue lifetime.
+3. [ ] Compile the generated Xcode app in GitHub Actions and fix any Swift/Clang integration issues.
+4. [ ] Load the selected GGUF on device and report peak app physical footprint.
+5. [ ] Test dialogue start and replay a known audio fixture through push; verify frame count, 24 kHz output, and callback text.
+6. [ ] Connect AVAudioEngine input/output using bounded buffers.
+7. [ ] Test simultaneous capture/playback, interruptions, route changes, background/foreground transitions, and sustained sessions.
+8. [ ] Benchmark on the physical M2 iPad Air: p50/p95/p99 frame time, real-time factor, input queue delay, output underruns, RAM, and thermal state.
 
 ## Source references
 
