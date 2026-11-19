@@ -94,7 +94,6 @@ PLIST
 }
 
 build_one iphoneos iPhoneOS
-build_one iphonesimulator iPhoneSimulator
 
 STAGE="${CACHE}/SpeechCpp.xcframework"
 rm -rf "${STAGE}"
