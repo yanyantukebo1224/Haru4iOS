@@ -236,7 +236,7 @@ final class HaruEngine: ObservableObject {
                 }
                 guard makeResult == 0 else {
                     let message = error.withUnsafeBufferPointer { $0.baseAddress.map { String(cString: $0) } ?? "" }
-                    throw NSError(domain: "HaruVoice", code: makeResult,
+                    throw NSError(domain: "HaruVoice", code: Int(makeResult),
                                   userInfo: [NSLocalizedDescriptionKey: message])
                 }
                 error = [CChar](repeating: 0, count: 1024)
@@ -249,7 +249,7 @@ final class HaruEngine: ObservableObject {
                 }
                 guard addResult == 0 else {
                     let message = error.withUnsafeBufferPointer { $0.baseAddress.map { String(cString: $0) } ?? "" }
-                    throw NSError(domain: "HaruVoice", code: addResult,
+                    throw NSError(domain: "HaruVoice", code: Int(addResult),
                                   userInfo: [NSLocalizedDescriptionKey: message])
                 }
                 DispatchQueue.main.async {
