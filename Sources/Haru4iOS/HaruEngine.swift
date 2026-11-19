@@ -229,9 +229,11 @@ final class HaruEngine: ObservableObject {
                     let pcm = self.audioIO.takeInput(maxSamples: count)
                     guard !pcm.isEmpty else { return }
                     var pushError = [CChar](repeating: 0, count: 1024)
-                    let pushResult = pcm.withUnsafeBufferPointer {
-                        HaruRuntimePushAudio(handle.pointer, $0.baseAddress, $0.count,
-                                             &pushError, pushError.count)
+                    let pushResult = pcm.withUnsafeBufferPointer { samples in
+                        pushError.withUnsafeMutableBufferPointer { errorBuffer in
+                            HaruRuntimePushAudio(handle.pointer, samples.baseAddress, samples.count,
+                                                 errorBuffer.baseAddress, errorBuffer.count)
+                        }
                     }
                     if pushResult < 0 {
                         let detail = pushError.withUnsafeBufferPointer { $0.baseAddress.map { String(cString: $0) } ?? "" }
