@@ -263,7 +263,7 @@ final class HaruEngine: ObservableObject {
         }
     }
 
-    private static func convertReferenceAudio(_ source: URL, to destination: URL) throws {
+    nonisolated private static func convertReferenceAudio(_ source: URL, to destination: URL) throws {
         let input = try AVAudioFile(forReading: source)
         let format = input.processingFormat
         let duration = Double(input.length) / format.sampleRate
