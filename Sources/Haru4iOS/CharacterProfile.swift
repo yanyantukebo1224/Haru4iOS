@@ -1,4 +1,5 @@
 import Foundation
+import Combine
 
 struct CharacterProfile: Identifiable, Codable, Equatable {
     var id: UUID = UUID()
@@ -66,17 +67,20 @@ final class CharacterProfileStore: ObservableObject {
         directory.appendingPathComponent(profile.voiceFileName)
     }
 
-    func replaceVoice(for id: UUID, with source: URL) throws -> (URL, String) {
-        guard let index = profiles.firstIndex(where: { $0.id == id }) else {
-            throw NSError(domain: "HaruProfiles", code: 1, userInfo: [NSLocalizedDescriptionKey: "プロファイルが見つかりません"])
-        }
+    func newVoiceDestination(for profile: CharacterProfile) -> (URL, String) {
         let key = "voice_" + UUID().uuidString.replacingOccurrences(of: "-", with: "")
-        let fileName = key + ".voice.gguf"
-        let destination = directory.appendingPathComponent(fileName)
+        return (directory.appendingPathComponent(key + ".voice.gguf"), key)
+    }
+
+    func setVoice(for id: UUID, key: String, fileName: String) {
+        guard let index = profiles.firstIndex(where: { $0.id == id }) else { return }
+        let oldName = profiles[index].voiceFileName
         profiles[index].voiceKey = key
         profiles[index].voiceFileName = fileName
         persist()
-        return (destination, key)
+        if !oldName.isEmpty && oldName != fileName {
+            try? FileManager.default.removeItem(at: directory.appendingPathComponent(oldName))
+        }
     }
 
     func persist() {
