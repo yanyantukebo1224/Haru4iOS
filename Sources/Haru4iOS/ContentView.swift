@@ -135,7 +135,7 @@ struct ContentView: View {
                 }
             }
             Section {
-                Text("Haru Dialogue APIのフレーム単位の音声・発話テキストを表示します。診断欄ではPCMレベルと入力・推論の遅延を確認できます。")
+                Text("Haru Dialogue APIのフレーム単位の音声・発話テキストを表示します。診断欄ではPCMレベルと入力・推論の遅延を確認できます。スピーカー音声の回り込みを防ぐため、イヤホンの使用を推奨します。")
                     .font(.footnote).foregroundStyle(.secondary)
             }
         }
