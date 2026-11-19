@@ -123,7 +123,8 @@ struct ContentView: View {
                 LabeledContent("対話", value: engine.isDialogueActive ? "会話中" : "停止中")
                 LabeledContent("音声入出力", value: engine.isAudioRunning ? "マイク・スピーカー有効" : "停止中")
                 LabeledContent("最新フレーム", value: "\(engine.lastFrameSamples) samples")
-                LabeledContent("診断", value: engine.diagnostics)
+                LabeledContent("入力診断", value: engine.inputDiagnostics)
+                LabeledContent("出力診断", value: engine.outputDiagnostics)
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Haruの発話テキスト")
                         .font(.caption)
