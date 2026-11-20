@@ -432,7 +432,7 @@ final class HaruEngine: ObservableObject {
                                                     error.withUnsafeMutableBufferPointer {
                                                         HaruRuntimeStartDialogue(handle.pointer, sampleRate, language, name,
                                                             persona, otherName, gender, backchannel, relationship, situation,
-                                                            voice, 30.0, 0, haruFrameCallback, context,
+                                                            voice, 3600.0, 0, haruFrameCallback, context,
                                                             $0.baseAddress, $0.count)
                                                     }
                                                 }
