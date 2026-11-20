@@ -116,18 +116,26 @@ struct ContentView: View {
             Section("リアルタイム音声対話") {
                 Button("会話を開始（マイク・スピーカー）") {
                     engine.startDialogue(profile: profiles.selected, voiceURL: profiles.selected.hasVoice ? profiles.voiceURL(for: profiles.selected) : nil)
-                }.disabled(engine.isDialogueActive || voiceBusy)
+                }.disabled(engine.isDialogueActive || engine.isDialogueStarting || voiceBusy)
                 Button("セッション終了", role: .destructive) {
                     engine.stopDialogue()
                 }.disabled(!engine.isDialogueActive)
-                LabeledContent("対話", value: engine.isDialogueActive ? "会話中" : "停止中")
+                LabeledContent("対話", value: engine.isDialogueStarting ? "準備中" : (engine.isDialogueActive ? "会話中" : "停止中"))
                 LabeledContent("音声入出力", value: engine.isAudioRunning ? "マイク・スピーカー有効" : "停止中")
                 LabeledContent("最新フレーム", value: "\(engine.lastFrameSamples) samples")
-                LabeledContent("認識・発話テキスト",
-                               value: engine.lastText.isEmpty ? "（まだありません）" : engine.lastText)
+                LabeledContent("入力診断", value: engine.inputDiagnostics)
+                LabeledContent("出力診断", value: engine.outputDiagnostics)
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Haruの発話テキスト")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Text(engine.lastText.isEmpty ? "（まだありません）" : engine.lastText)
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
             }
             Section {
-                Text("Haru Dialogue APIにマイク音声を送り、生成された24 kHz音声をスピーカーへ再生します。音声推論は専用ワーカースレッドで実行されます。")
+                Text("Haru Dialogue APIのフレーム単位の音声・発話テキストを表示します。診断欄ではPCMレベルと入力・推論の遅延を確認できます。スピーカー音声の回り込みを防ぐため、イヤホンの使用を推奨します。")
                     .font(.footnote).foregroundStyle(.secondary)
             }
         }
