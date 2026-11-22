@@ -11,7 +11,13 @@ struct ContentView: View {
         SimulatorDiagnosticsView()
         #else
         NavigationStack {
-            ConversationHomeView(engine: engine, profiles: profiles)
+            Group {
+                if engine.isModelLoaded {
+                    ConversationHomeView(engine: engine, profiles: profiles)
+                } else {
+                    ModelLoadingView(engine: engine, installer: installer)
+                }
+            }
                 .toolbar {
                     ToolbarItem(placement: .topBarTrailing) {
                         NavigationLink {
@@ -29,6 +35,34 @@ struct ContentView: View {
             engine.loadModel(at: url)
         }
         #endif
+    }
+}
+
+
+private struct ModelLoadingView: View {
+    @ObservedObject var engine: HaruEngine
+    @ObservedObject var installer: HaruModelInstaller
+
+    var body: some View {
+        VStack(spacing: 18) {
+            Image(systemName: "waveform").font(.system(size: 48)).foregroundStyle(.tint)
+            Text("Haru-4B").font(.largeTitle.bold())
+            Text(engine.status == "モデル未読み込み" ? installer.status : engine.status)
+                .font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.center)
+            if installer.hasError {
+                Button("ダウンロードを再試行") { installer.retry() }
+                    .buttonStyle(.borderedProminent)
+            } else {
+                ProgressView(value: installer.progress).frame(maxWidth: 320)
+                Text(installer.progress > 0 ? "\(Int(installer.progress * 100))%" : "初回起動時にモデルを準備します")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Text("モデルは端末内に保存されます。初回のみ約4.5 GBのダウンロードが必要です。")
+                .font(.footnote).foregroundStyle(.tertiary).multilineTextAlignment(.center)
+                .frame(maxWidth: 340)
+        }
+        .padding(28).frame(maxWidth: .infinity, maxHeight: .infinity)
+        .navigationTitle("Haru").navigationBarTitleDisplayMode(.inline)
     }
 }
 
