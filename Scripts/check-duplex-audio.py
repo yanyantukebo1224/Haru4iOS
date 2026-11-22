@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
-"""Static regression checks for the iOS full-duplex audio pipeline."""
+"""Static regression checks for the device audio path and simulator mini-diagnostics."""
 from pathlib import Path
 
 root = Path(__file__).resolve().parents[1]
 engine = (root / "Sources/Haru4iOS/HaruEngine.swift").read_text()
 ui = (root / "Sources/Haru4iOS/ContentView.swift").read_text()
+sim = (root / "Sources/Haru4iOS/SimulatorDiagnostics.swift").read_text()
+installer = (root / "Sources/Haru4iOS/HaruModelInstaller.swift").read_text()
 
 checks = {
     "startup audio is discarded after dialogue_start": "let discarded = self.audioIO.discardPendingInput()" in engine,
@@ -15,13 +17,17 @@ checks = {
     "output scheduling is serialized": "outputQueue.async { [audioIO]" in engine,
     "frame text is concatenated": "self.lastText += message" in engine,
     "PCM level is measured": "rms = pcm.isEmpty ? 0" in engine and "peak=%.4f" in engine,
-    "input and output diagnostics are visible": "engine.inputDiagnostics" in ui and "engine.outputDiagnostics" in ui,
-    "startup button is disabled while starting": "engine.isDialogueStarting" in ui,
-    "simulator never downloads the 4.5GB model": "#if targetEnvironment(simulator)" in (root / "Sources/Haru4iOS/HaruModelInstaller.swift").read_text() and "Never download" in (root / "Sources/Haru4iOS/HaruModelInstaller.swift").read_text(),
+    "main conversation view excludes low-level diagnostics": "engine.inputDiagnostics" not in ui and "engine.outputDiagnostics" not in ui,
+    "start button is disabled while starting": "engine.isDialogueStarting" in ui,
+    "settings are separated into navigation hierarchy": "AppSettingsView" in ui and "CharacterSettingsView" in ui and "VoiceSettingsView" in ui,
+    "simulator mini-diagnostic has deterministic PCM frame": "3_200" in sim and "24_000" in sim,
+    "simulator mini-diagnostic checks RMS, peak, callback and state": all(x in sim for x in ["RMS", "ピーク計算", "コールバック文字列", "状態遷移"]),
+    "simulator never downloads the 4.5GB model": "#if targetEnvironment(simulator)" in installer and "Never download" in installer,
+    "simulator diagnostics are selected only in simulator builds": "#if targetEnvironment(simulator)" in ui and "SimulatorDiagnosticsView()" in ui,
 }
 failed = [name for name, ok in checks.items() if not ok]
 for name, ok in checks.items():
     print(("PASS" if ok else "FAIL") + ": " + name)
 if failed:
     raise SystemExit(1)
-print(f"All {len(checks)} duplex pipeline checks passed.")
+print(f"All {len(checks)} regression checks passed.")
