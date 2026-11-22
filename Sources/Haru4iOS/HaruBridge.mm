@@ -2,6 +2,24 @@
 #include <SpeechCpp/speech.h>
 #include <cstdio>
 #include <new>
+#include <mutex>
+
+namespace {
+std::mutex log_callback_mutex;
+HaruLogCallback log_callback = nullptr;
+void *log_context = nullptr;
+void forward_speech_log(speech_log_level level, const char *text, void *) {
+    HaruLogCallback callback = nullptr;
+    void *context = nullptr;
+    {
+        std::lock_guard<std::mutex> lock(log_callback_mutex);
+        callback = log_callback;
+        context = log_context;
+    }
+    if (callback) callback(static_cast<int>(level), text, context);
+}
+}
+
 
 struct HaruRuntime { speech_model *model = nullptr; speech_dialogue *dialogue = nullptr; };
 
@@ -16,6 +34,30 @@ static speech_status set_string(speech_request *request, speech_option option, c
     return value && *value ? speech_request_set_string(request, option, value) : SPEECH_OK;
 }
 extern "C" HaruRuntime *HaruRuntimeCreate(void) { return new (std::nothrow) HaruRuntime(); }
+extern "C" void HaruRuntimeSetLogCallback(HaruLogCallback callback, void *context) {
+    {
+        std::lock_guard<std::mutex> lock(log_callback_mutex);
+        log_callback = callback;
+        log_context = context;
+    }
+    speech_log_set(callback ? forward_speech_log : nullptr, nullptr);
+}
+extern "C" int HaruRuntimeUnloadModel(HaruRuntime *runtime, char *error_buffer, size_t error_capacity) {
+    if (!runtime) {
+        if (error_buffer && error_capacity) std::snprintf(error_buffer, error_capacity, "Invalid runtime");
+        return SPEECH_ERROR_INVALID_ARGUMENT;
+    }
+    if (runtime->dialogue) {
+        if (error_buffer && error_capacity) std::snprintf(error_buffer, error_capacity, "End the active dialogue before unloading the model");
+        return SPEECH_ERROR_INVALID_ARGUMENT;
+    }
+    if (runtime->model) {
+        speech_model_free(runtime->model);
+        runtime->model = nullptr;
+    }
+    if (error_buffer && error_capacity) error_buffer[0] = '\0';
+    return SPEECH_OK;
+}
 extern "C" void HaruRuntimeDestroy(HaruRuntime *runtime) {
     if (!runtime) return;
     if (runtime->dialogue) speech_dialogue_free(runtime->dialogue);
