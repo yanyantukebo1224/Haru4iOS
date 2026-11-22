@@ -9,6 +9,9 @@ extern "C" {
 
 typedef struct HaruRuntime HaruRuntime;
 typedef int (*HaruFrameCallback)(const float *samples, size_t sample_count, const char *text, void *context);
+typedef void (*HaruLogCallback)(int level, const char *text, void *context);
+void HaruRuntimeSetLogCallback(HaruLogCallback callback, void *context);
+int HaruRuntimeUnloadModel(HaruRuntime *runtime, char *error_buffer, size_t error_capacity);
 
 HaruRuntime *HaruRuntimeCreate(void);
 void HaruRuntimeDestroy(HaruRuntime *runtime);

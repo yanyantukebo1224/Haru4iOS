@@ -2,6 +2,13 @@ name: Build Haru4iOS app
 
 on:
   workflow_dispatch:
+  pull_request:
+    branches: [main]
+    paths:
+      - "Sources/**"
+      - "Scripts/**"
+      - "project.yml"
+      - ".github/workflows/build-ios-app.yml"
   push:
     branches: [main]
     paths:
@@ -20,6 +27,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Check full-duplex audio pipeline invariants
+        run: python3 Scripts/check-duplex-audio.py
 
       - name: Install build tools
         run: brew install cmake ninja xcodegen librsvg
@@ -85,4 +95,40 @@ jobs:
           name: Haru4iOS-app-builds
           path: Haru4iOS-unsigned-for-signing.ipa
           if-no-files-found: error
+          retention-days: 14
+
+      - name: Build iPadOS simulator app
+        run: |
+          xcodebuild \
+            -project Haru4iOS.xcodeproj \
+            -scheme Haru4iOS \
+            -configuration Debug \
+            -sdk iphonesimulator \
+            -destination 'platform=iOS Simulator,name=iPad Air 11-inch (M3),OS=26.2' \
+            -derivedDataPath .build/SimulatorData \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+
+      - name: Boot, install, and launch iPad simulator
+        run: |
+          mkdir -p .build/simulator-diagnostics
+          DEVICE_ID="$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next(x["udid"] for group in d["devices"].values() for x in group if x["name"] == "iPad Air 11-inch (M3)"))')"
+          APP=".build/SimulatorData/Build/Products/Debug-iphonesimulator/Haru4iOS.app"
+          test -d "$APP"
+          xcrun simctl boot "$DEVICE_ID" || true
+          xcrun simctl bootstatus "$DEVICE_ID" -b
+          xcrun simctl install "$DEVICE_ID" "$APP"
+          xcrun simctl launch "$DEVICE_ID" dev.haru4ios.app | tee .build/simulator-diagnostics/launch.txt
+          sleep 15
+          xcrun simctl io "$DEVICE_ID" screenshot .build/simulator-diagnostics/ipad-startup.png
+          xcrun simctl spawn "$DEVICE_ID" log show --style compact --last 3m --predicate 'process == "Haru4iOS"' > .build/simulator-diagnostics/app.log
+          xcrun simctl listapps "$DEVICE_ID" > .build/simulator-diagnostics/installed-apps.txt
+
+      - name: Upload simulator diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Haru4iOS-ipad-simulator-diagnostics
+          path: .build/simulator-diagnostics/
+          if-no-files-found: warn
           retention-days: 14

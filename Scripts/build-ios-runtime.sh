@@ -78,11 +78,13 @@ PLIST
 }
 
 build_one iphoneos iPhoneOS arm64
+build_one iphonesimulator iPhoneSimulator arm64
 
 STAGE="${CACHE}/SpeechCpp.xcframework"
 rm -rf "${STAGE}"
 xcodebuild -create-xcframework \
   -framework "${CACHE}/frameworks/iphoneos/SpeechCpp.framework" \
+  -framework "${CACHE}/frameworks/iphonesimulator/SpeechCpp.framework" \
   -output "${STAGE}"
 
 rm -rf "${OUT}/SpeechCpp.xcframework"
@@ -90,4 +92,4 @@ mkdir -p "${OUT}"
 cp -R "${STAGE}" "${OUT}/SpeechCpp.xcframework"
 ditto -c -k --sequesterRsrc --keepParent "${OUT}/SpeechCpp.xcframework" "${OUT}/SpeechCpp.xcframework.zip"
 (cd "${OUT}" && shasum -a 256 "SpeechCpp.xcframework.zip" > "SHA256SUMS")
-echo "Built iOS device-only SpeechCpp.xcframework at ${OUT}/SpeechCpp.xcframework"
+echo "Built device + Apple Silicon simulator SpeechCpp.xcframework at ${OUT}/SpeechCpp.xcframework"
