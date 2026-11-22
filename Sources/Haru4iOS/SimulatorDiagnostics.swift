@@ -93,6 +93,9 @@ struct SimulatorDiagnosticsView: View {
             }
             .navigationTitle("Haru 診断")
         }
+        .onAppear {
+            if !runner.finished && !runner.isRunning { runner.run() }
+        }
     }
 }
 #endif
