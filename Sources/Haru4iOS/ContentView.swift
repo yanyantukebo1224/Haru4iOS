@@ -32,7 +32,7 @@ struct ContentView: View {
         .onAppear { installer.installIfNeeded() }
         .onChange(of: installer.modelURL) { _, url in
             guard let url else { return }
-            engine.loadModel(at: url)
+            engine.loadModel(at: url, device: UserDefaults.standard.string(forKey: "haru.inferenceDevice") ?? "auto")
         }
         #endif
     }
@@ -307,6 +307,7 @@ private struct VoiceSettingsView: View {
 private struct ModelStatusView: View {
     @ObservedObject var engine: HaruEngine
     @ObservedObject var installer: HaruModelInstaller
+    @AppStorage("haru.inferenceDevice") private var inferenceDevice = "auto"
 
     var body: some View {
         List {
@@ -314,6 +315,30 @@ private struct ModelStatusView: View {
                 LabeledContent("モデル", value: "Haru-4B Q4_K")
                 LabeledContent("状態", value: engine.status)
                 LabeledContent("保存先", value: "端末内")
+            }
+            Section("推論デバイス") {
+                Picker("実行先", selection: $inferenceDevice) {
+                    Text("自動（GPU優先）").tag("auto")
+                    Text("CPU").tag("cpu")
+                }
+                .pickerStyle(.segmented)
+                Text("Metalでグラフ実行に失敗する場合、CPUに切り替えて比較できます。CPUは大幅に遅くなる場合があります。")
+                    .font(.footnote).foregroundStyle(.secondary)
+                Button("デバイス設定を適用") {
+                    if let url = installer.modelURL {
+                        engine.loadModel(at: url, device: inferenceDevice)
+                    }
+                }
+                .disabled(installer.modelURL == nil || engine.isDialogueActive || engine.isDialogueStarting)
+            }
+            Section("推論ログ（直近）") {
+                if engine.inferenceLogs.isEmpty {
+                    Text("まだログはありません").foregroundStyle(.secondary)
+                } else {
+                    ForEach(Array(engine.inferenceLogs.suffix(80).enumerated()), id: \.offset) { _, line in
+                        Text(line).font(.system(.caption2, design: .monospaced)).textSelection(.enabled)
+                    }
+                }
             }
             Section("ダウンロード") {
                 Text(installer.status).font(.footnote).foregroundStyle(.secondary)
