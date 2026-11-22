@@ -5,82 +5,183 @@ struct ContentView: View {
     @StateObject private var engine = HaruEngine()
     @StateObject private var installer = HaruModelInstaller()
     @StateObject private var profiles = CharacterProfileStore()
-    @State private var showingAudioImporter = false
-    @State private var voiceBusy = false
-    @State private var voiceMessage = ""
-
-    private var profileBinding: Binding<CharacterProfile> {
-        Binding(get: { profiles.selected }, set: { profiles.selected = $0 })
-    }
 
     var body: some View {
+        #if targetEnvironment(simulator)
+        SimulatorDiagnosticsView()
+        #else
         NavigationStack {
-            Group {
-                if engine.isModelLoaded { dialogueView } else { startupView }
-            }
-            .navigationTitle("Haru4iOS")
+            ConversationHomeView(engine: engine, profiles: profiles)
+                .toolbar {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        NavigationLink {
+                            AppSettingsView(engine: engine, installer: installer, profiles: profiles)
+                        } label: {
+                            Image(systemName: "gearshape")
+                        }
+                        .accessibilityLabel("設定")
+                    }
+                }
         }
         .onAppear { installer.installIfNeeded() }
         .onChange(of: installer.modelURL) { _, url in
             guard let url else { return }
             engine.loadModel(at: url)
         }
-        .fileImporter(isPresented: $showingAudioImporter, allowedContentTypes: [.audio],
-                      allowsMultipleSelection: false) { result in
-            switch result {
-            case .success(let urls):
-                guard let url = urls.first else {
-                    voiceMessage = "音声ファイルが選択されていません"
-                    return
+        #endif
+    }
+}
+
+private struct ConversationHomeView: View {
+    @ObservedObject var engine: HaruEngine
+    @ObservedObject var profiles: CharacterProfileStore
+
+    private var selectedVoiceURL: URL? {
+        profiles.selected.hasVoice ? profiles.voiceURL(for: profiles.selected) : nil
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 12) {
+                Image(systemName: engine.isDialogueActive ? "waveform" : "waveform")
+                    .font(.title2).foregroundStyle(engine.isDialogueActive ? .green : .secondary)
+                    .frame(width: 44, height: 44)
+                    .background(.quaternary, in: Circle())
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(profiles.selected.title).font(.headline)
+                    Text(statusLabel).font(.caption).foregroundStyle(.secondary)
                 }
-                importVoice(url)
-            case .failure(let error): voiceMessage = "ファイル選択失敗: \(error.localizedDescription)"
+                Spacer()
+                if engine.isDialogueActive {
+                    Label("LIVE", systemImage: "circle.fill")
+                        .font(.caption2.bold()).foregroundStyle(.green)
+                }
             }
-        }
-    }
+            .padding(.horizontal, 20).padding(.top, 18).padding(.bottom, 12)
 
-    private var startupView: some View {
-        VStack(spacing: 22) {
-            Image(systemName: "waveform").font(.system(size: 54, weight: .medium)).foregroundStyle(.tint)
-            Text("Haru-4B").font(.largeTitle.bold())
-            Text(engine.isModelLoaded ? engine.status : installer.status)
-                .font(.headline).multilineTextAlignment(.center).foregroundStyle(.secondary)
-            if !installer.hasError {
-                ProgressView(value: installer.progress).progressViewStyle(.linear).frame(maxWidth: 420)
-                Text(installer.progress > 0 ? "\(Int(installer.progress * 100))%" : "初回起動時にモデルを取得します")
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    if engine.lastText.isEmpty {
+                        ContentUnavailableView("会話を始めよう", systemImage: "waveform",
+                            description: Text("開始ボタンを押すと、Haruがマイク入力を聞きながらリアルタイムで応答します。"))
+                            .padding(.top, 54)
+                    } else {
+                        Text(engine.lastText)
+                            .font(.title3).lineSpacing(5)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(18)
+                            .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 18))
+                    }
+                }
+                .padding(20)
+            }
+
+            VStack(spacing: 10) {
+                if engine.isDialogueActive {
+                    Button(role: .destructive) { engine.stopDialogue() } label: {
+                        Label("会話を終了", systemImage: "stop.fill")
+                            .frame(maxWidth: .infinity).frame(height: 54)
+                    }
+                    .buttonStyle(.bordered)
+                } else {
+                    Button {
+                        engine.startDialogue(profile: profiles.selected, voiceURL: selectedVoiceURL)
+                    } label: {
+                        Label(engine.isDialogueStarting ? "準備中…" : "会話を始める",
+                              systemImage: engine.isDialogueStarting ? "hourglass" : "mic.fill")
+                            .frame(maxWidth: .infinity).frame(height: 58)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(engine.isDialogueStarting || !engine.isModelLoaded)
+                }
+                Text(engine.isDialogueStarting ? "モデルを準備しています" :
+                     (engine.isDialogueActive ? "マイクとスピーカーが有効です" : "設定は右上のメニューから変更できます"))
                     .font(.caption).foregroundStyle(.secondary)
-            } else {
-                Button("ダウンロードを再試行") { installer.retry() }.buttonStyle(.borderedProminent)
             }
-            Text("モデルは一度取得すると端末内に保存され、次回以降は再ダウンロードしません。初回のみ大容量通信が発生します。")
-                .font(.footnote).multilineTextAlignment(.center).foregroundStyle(.secondary).frame(maxWidth: 420)
+            .padding(.horizontal, 20).padding(.top, 12).padding(.bottom, 16)
+            .background(.bar)
         }
-        .padding(28).frame(maxWidth: .infinity, maxHeight: .infinity)
+        .navigationTitle("Haru")
+        .navigationBarTitleDisplayMode(.inline)
     }
 
-    private var dialogueView: some View {
-        Form {
-            Section("モデル") {
-                LabeledContent("状態", value: engine.status)
-                LabeledContent("モデル", value: "Haru-4B Q4_K")
-                LabeledContent("保存先", value: "端末内 / Application Support")
-            }
+    private var statusLabel: String {
+        if engine.isDialogueStarting { return "接続準備中" }
+        if engine.isDialogueActive { return "会話中" }
+        if engine.isModelLoaded { return "準備完了" }
+        return engine.status
+    }
+}
 
-            Section("キャラクタープロファイル") {
-                Picker("使用するキャラクター", selection: $profiles.selectedID) {
+private struct AppSettingsView: View {
+    @ObservedObject var engine: HaruEngine
+    @ObservedObject var installer: HaruModelInstaller
+    @ObservedObject var profiles: CharacterProfileStore
+
+    var body: some View {
+        List {
+            Section("キャラクター") {
+                NavigationLink {
+                    CharacterSettingsView(profiles: profiles)
+                } label: {
+                    Label {
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text("キャラクター設定")
+                            Text(profiles.selected.title + " · " + profiles.selected.name)
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                    } icon: { Image(systemName: "person.crop.circle") }
+                }
+                NavigationLink {
+                    VoiceSettingsView(engine: engine, profiles: profiles)
+                } label: {
+                    Label("ボイス設定", systemImage: "waveform.badge.mic")
+                }
+            }
+            Section("アプリ") {
+                NavigationLink {
+                    ModelStatusView(engine: engine, installer: installer)
+                } label: {
+                    Label("モデルとストレージ", systemImage: "externaldrive")
+                }
+                NavigationLink {
+                    AboutView()
+                } label: {
+                    Label("このアプリについて", systemImage: "info.circle")
+                }
+            }
+        }
+        .navigationTitle("設定")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+private struct CharacterSettingsView: View {
+    @ObservedObject var profiles: CharacterProfileStore
+
+    var body: some View {
+        Form {
+            Section("使用するキャラクター") {
+                Picker("キャラクター", selection: $profiles.selectedID) {
                     ForEach(profiles.profiles) { profile in
                         Text(profile.title).tag(Optional(profile.id))
                     }
                 }
                 HStack {
-                    Button("新規作成") { profiles.addProfile() }
+                    Button { profiles.addProfile() } label: { Label("新規作成", systemImage: "plus") }
                     Spacer()
-                    Button("削除", role: .destructive) { profiles.deleteSelected() }
-                        .disabled(profiles.profiles.count <= 1)
+                    Button(role: .destructive) { profiles.deleteSelected() } label: {
+                        Label("削除", systemImage: "trash")
+                    }.disabled(profiles.profiles.count <= 1)
                 }
-                TextField("プロファイル名", text: field(\.title))
+            }
+            Section("基本情報") {
+                TextField("表示名", text: field(\.title))
                 TextField("キャラクター名", text: field(\.name))
-                TextField("ペルソナ", text: field(\.persona), axis: .vertical).lineLimit(3...7)
+                TextField("話し相手の名前", text: field(\.otherName))
+            }
+            Section("性格・会話") {
+                TextField("ペルソナ", text: field(\.persona), axis: .vertical).lineLimit(4...8)
                 Picker("性別", selection: field(\.gender)) {
                     Text("指定なし").tag("")
                     Text("女性").tag("female")
@@ -91,54 +192,12 @@ struct ContentView: View {
                     Text("標準").tag("mid")
                     Text("多め").tag("high")
                 }
-                TextField("話し相手の名前", text: field(\.otherName))
                 TextField("関係性", text: field(\.relationship))
                 TextField("会話する状況", text: field(\.situation))
-
-                HStack {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("ボイス")
-                        Text(profiles.selected.hasVoice ? "登録済み：このプロファイルに保存" : "未登録：Haru標準ボイスを使用")
-                            .font(.caption).foregroundStyle(.secondary)
-                    }
-                    Spacer()
-                    Button("音声を読み込む") { showingAudioImporter = true }
-                        .disabled(voiceBusy)
-                }
-                if voiceBusy { ProgressView("ボイスを作成中…") }
-                if !voiceMessage.isEmpty {
-                    Text(voiceMessage).font(.footnote).foregroundStyle(.secondary)
-                }
-                Text("音声は3秒以上必要です。読み込み可能な音声形式は端末のデコーダーに依存します。取り込んだ音声は内部で変換され、ボイスデータとペルソナが一緒に保存されます。")
-                    .font(.footnote).foregroundStyle(.secondary)
-            }
-
-            Section("リアルタイム音声対話") {
-                Button("会話を開始（マイク・スピーカー）") {
-                    engine.startDialogue(profile: profiles.selected, voiceURL: profiles.selected.hasVoice ? profiles.voiceURL(for: profiles.selected) : nil)
-                }.disabled(engine.isDialogueActive || engine.isDialogueStarting || voiceBusy)
-                Button("セッション終了", role: .destructive) {
-                    engine.stopDialogue()
-                }.disabled(!engine.isDialogueActive)
-                LabeledContent("対話", value: engine.isDialogueStarting ? "準備中" : (engine.isDialogueActive ? "会話中" : "停止中"))
-                LabeledContent("音声入出力", value: engine.isAudioRunning ? "マイク・スピーカー有効" : "停止中")
-                LabeledContent("最新フレーム", value: "\(engine.lastFrameSamples) samples")
-                LabeledContent("入力診断", value: engine.inputDiagnostics)
-                LabeledContent("出力診断", value: engine.outputDiagnostics)
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Haruの発話テキスト")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    Text(engine.lastText.isEmpty ? "（まだありません）" : engine.lastText)
-                        .textSelection(.enabled)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-            }
-            Section {
-                Text("Haru Dialogue APIのフレーム単位の音声・発話テキストを表示します。診断欄ではPCMレベルと入力・推論の遅延を確認できます。スピーカー音声の回り込みを防ぐため、イヤホンの使用を推奨します。")
-                    .font(.footnote).foregroundStyle(.secondary)
             }
         }
+        .navigationTitle("キャラクター")
+        .navigationBarTitleDisplayMode(.inline)
     }
 
     private func field<T>(_ keyPath: WritableKeyPath<CharacterProfile, T>) -> Binding<T> {
@@ -148,33 +207,102 @@ struct ContentView: View {
             profiles.selected = updated
         })
     }
+}
 
-    private func importVoice(_ source: URL) {
-        let id = profiles.selected.id
-        let access = source.startAccessingSecurityScopedResource()
-        defer { if access { source.stopAccessingSecurityScopedResource() } }
-        let (destination, key) = profiles.newVoiceDestination(for: profiles.selected)
-        let ext = source.pathExtension.isEmpty ? "audio" : source.pathExtension.lowercased()
-        let savedRecording = profiles.sourceAudioDestination(for: key, fileExtension: ext)
-        do {
-            try FileManager.default.copyItem(at: source, to: savedRecording)
-        } catch {
-            voiceMessage = "音声ファイルをアプリ領域へコピーできません: " + error.localizedDescription
-            return
-        }
-        voiceBusy = true
-        voiceMessage = "音声を解析・変換しています…"
-        engine.makeAndRegisterVoice(from: savedRecording, voiceURL: destination, voiceName: key) { result in
-            voiceBusy = false
-            switch result {
-            case .success:
-                profiles.setVoice(for: id, key: key, fileName: destination.lastPathComponent,
-                                  sourceAudioFileName: savedRecording.lastPathComponent)
-                voiceMessage = "元音声・ボイスデータ・ペルソナをまとめて保存しました"
-            case .failure(let error):
-                try? FileManager.default.removeItem(at: savedRecording)
-                voiceMessage = "ボイス登録失敗: " + error.localizedDescription
+private struct VoiceSettingsView: View {
+    @ObservedObject var engine: HaruEngine
+    @ObservedObject var profiles: CharacterProfileStore
+    @State private var showingImporter = false
+    @State private var busy = false
+    @State private var message = ""
+
+    var body: some View {
+        Form {
+            Section("登録済みボイス") {
+                LabeledContent("状態", value: profiles.selected.hasVoice ? "カスタムボイス" : "Haru標準ボイス")
+                Button { showingImporter = true } label: {
+                    Label("音声ファイルを読み込む", systemImage: "plus")
+                }.disabled(busy || engine.isDialogueActive || engine.isDialogueStarting)
+                if busy { ProgressView("ボイスを作成中…") }
+                if !message.isEmpty { Text(message).font(.footnote).foregroundStyle(.secondary) }
+            }
+            Section {
+                Text("3秒以上の音声を選択してください。形式は端末が読み込める音声ファイルに対応します。元音声と生成したボイスは端末内に保存されます。")
+                    .font(.footnote).foregroundStyle(.secondary)
             }
         }
+        .navigationTitle("ボイス")
+        .navigationBarTitleDisplayMode(.inline)
+        .fileImporter(isPresented: $showingImporter, allowedContentTypes: [.audio],
+                      allowsMultipleSelection: false) { result in
+            switch result {
+            case .success(let urls):
+                guard let url = urls.first else { message = "ファイルが選択されていません"; return }
+                importVoice(url)
+            case .failure(let error): message = "ファイル選択失敗: " + error.localizedDescription
+            }
+        }
+    }
+
+    private func importVoice(_ source: URL) {
+        let selected = profiles.selected
+        let access = source.startAccessingSecurityScopedResource()
+        defer { if access { source.stopAccessingSecurityScopedResource() } }
+        let (destination, key) = profiles.newVoiceDestination(for: selected)
+        let ext = source.pathExtension.isEmpty ? "audio" : source.pathExtension.lowercased()
+        let recording = profiles.sourceAudioDestination(for: key, fileExtension: ext)
+        do { try FileManager.default.copyItem(at: source, to: recording) }
+        catch { message = "音声を保存できません: " + error.localizedDescription; return }
+        busy = true
+        message = "音声を解析しています…"
+        engine.makeAndRegisterVoice(from: recording, voiceURL: destination, voiceName: key) { result in
+            busy = false
+            switch result {
+            case .success:
+                profiles.setVoice(for: selected.id, key: key, fileName: destination.lastPathComponent,
+                                  sourceAudioFileName: recording.lastPathComponent)
+                message = "このキャラクターにボイスを登録しました"
+            case .failure(let error):
+                try? FileManager.default.removeItem(at: recording)
+                message = "登録失敗: " + error.localizedDescription
+            }
+        }
+    }
+}
+
+private struct ModelStatusView: View {
+    @ObservedObject var engine: HaruEngine
+    @ObservedObject var installer: HaruModelInstaller
+
+    var body: some View {
+        List {
+            Section("モデル") {
+                LabeledContent("モデル", value: "Haru-4B Q4_K")
+                LabeledContent("状態", value: engine.status)
+                LabeledContent("保存先", value: "端末内")
+            }
+            Section("ダウンロード") {
+                Text(installer.status).font(.footnote).foregroundStyle(.secondary)
+                if installer.progress > 0 && installer.progress < 1 {
+                    ProgressView(value: installer.progress)
+                }
+                if installer.hasError {
+                    Button("再試行") { installer.retry() }
+                }
+            }
+        }
+        .navigationTitle("モデル")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+private struct AboutView: View {
+    var body: some View {
+        List {
+            LabeledContent("アプリ", value: "Haru4iOS")
+            LabeledContent("推論", value: "端末内で実行")
+            LabeledContent("通信", value: "初回モデル取得時のみ")
+        }
+        .navigationTitle("このアプリについて")
     }
 }
