@@ -25,6 +25,9 @@ checks = {
     "simulator never downloads the 4.5GB model": "#if targetEnvironment(simulator)" in installer and "Never download" in installer,
     "simulator diagnostics are selected only in simulator builds": "#if targetEnvironment(simulator)" in ui and "SimulatorDiagnosticsView()" in ui,
     "simulator diagnostics execute automatically on launch": ".onAppear" in sim and "runner.run()" in sim,
+    "speech.cpp and ggml logs reach the app": "speech_log_set(callback ? forward_speech_log : nullptr, nullptr)" in (root / "Sources/Haru4iOS/HaruBridge.mm").read_text() and "receiveRuntimeLog" in engine,
+    "CPU backend comparison is available": "HaruRuntimeUnloadModel" in engine and 'Text("CPU").tag("cpu")' in ui,
+    "model unload is guarded against active dialogue": "End the active dialogue before unloading the model" in (root / "Sources/Haru4iOS/HaruBridge.mm").read_text(),
 }
 failed = [name for name, ok in checks.items() if not ok]
 for name, ok in checks.items():
