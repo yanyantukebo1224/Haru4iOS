@@ -24,6 +24,7 @@ checks = {
     "simulator mini-diagnostic checks RMS, peak, callback and state": all(x in sim for x in ["RMS", "ピーク計算", "コールバック文字列", "状態遷移"]),
     "simulator never downloads the 4.5GB model": "#if targetEnvironment(simulator)" in installer and "Never download" in installer,
     "simulator diagnostics are selected only in simulator builds": "#if targetEnvironment(simulator)" in ui and "SimulatorDiagnosticsView()" in ui,
+    "simulator diagnostics execute automatically on launch": ".onAppear" in sim and "runner.run()" in sim,
 }
 failed = [name for name, ok in checks.items() if not ok]
 for name, ok in checks.items():
