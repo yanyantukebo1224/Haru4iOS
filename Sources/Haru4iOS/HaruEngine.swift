@@ -2,6 +2,12 @@ import Foundation
 import Combine
 import AVFoundation
 
+private let haruLogCallback: HaruLogCallback = { level, text, context in
+    guard let context else { return }
+    let engine = Unmanaged<HaruEngine>.fromOpaque(context).takeUnretainedValue()
+    engine.receiveRuntimeLog(level: level, text: text)
+}
+
 private let haruFrameCallback: HaruFrameCallback = { samples, count, text, context in
     guard let context else { return 0 }
     let engine = Unmanaged<HaruEngine>.fromOpaque(context).takeUnretainedValue()
@@ -193,6 +199,8 @@ final class HaruEngine: ObservableObject {
     @Published private(set) var isDialogueActive = false
     @Published private(set) var isDialogueStarting = false
     @Published private(set) var isAudioRunning = false
+    @Published private(set) var inferenceLogs: [String] = []
+    @Published private(set) var inferenceDevice = "auto"
 
     private let worker = DispatchQueue(label: "dev.haru4ios.inference", qos: .userInitiated)
     nonisolated(unsafe) private let outputQueue = DispatchQueue(label: "dev.haru4ios.output", qos: .userInitiated)
@@ -205,21 +213,36 @@ final class HaruEngine: ObservableObject {
     init() {
         runtime = HaruRuntimeCreate()
         if runtime == nil { status = "ネイティブランタイムの作成に失敗" }
+        else { HaruRuntimeSetLogCallback(haruLogCallback, Unmanaged.passUnretained(self).toOpaque()) }
     }
 
-    func loadModel(at url: URL) {
+    func loadModel(at url: URL, device: String = "auto") {
         guard let runtime else { status = "ランタイムが初期化されていません"; return }
+        guard !isDialogueActive && !isDialogueStarting else {
+            status = "会話を終了してから推論デバイスを変更してください"
+            return
+        }
         status = "モデルを読み込み中…"
+        isModelLoaded = false
         modelPath = url.path
+        inferenceDevice = device
         let handle = HaruRuntimeHandle(runtime)
         worker.async { [weak self, handle] in
             guard let self else { return }
             var error = [CChar](repeating: 0, count: 1024)
+            let unloadResult = error.withUnsafeMutableBufferPointer {
+                HaruRuntimeUnloadModel(handle.pointer, $0.baseAddress, $0.count)
+            }
+            if unloadResult != 0 {
+                let message = error.withUnsafeBufferPointer { $0.baseAddress.map { String(cString: $0) } ?? "" }
+                DispatchQueue.main.async { self.status = "モデル解放失敗: \(message) (code \(unloadResult))" }
+                return
+            }
+            error = [CChar](repeating: 0, count: 1024)
             let result = url.path.withCString { path in
-                "auto".withCString { device in
+                device.withCString { selectedDevice in
                     error.withUnsafeMutableBufferPointer {
-                        HaruRuntimeLoadModel(handle.pointer, path, device, 4,
-                                             $0.baseAddress, $0.count)
+                        HaruRuntimeLoadModel(handle.pointer, path, selectedDevice, 4, $0.baseAddress, $0.count)
                     }
                 }
             }
@@ -227,10 +250,24 @@ final class HaruEngine: ObservableObject {
             DispatchQueue.main.async {
                 if result == 0 {
                     self.isModelLoaded = true
-                    self.status = "モデル読み込み成功"
+                    self.status = "モデル読み込み成功（\(device)）"
                 } else {
                     self.status = "モデル読み込み失敗: \(message) (code \(result))"
                 }
+            }
+        }
+    }
+
+    nonisolated func receiveRuntimeLog(level: Int32, text: UnsafePointer<CChar>?) {
+        let line = text.map { String(cString: $0) } ?? ""
+        guard !line.isEmpty else { return }
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            let names = ["DEBUG", "INFO", "WARN", "ERROR"]
+            let prefix = Int(level) >= 0 && Int(level) < names.count ? names[Int(level)] : "LOG"
+            self.inferenceLogs.append("[\(prefix)] \(line.trimmingCharacters(in: .newlines))")
+            if self.inferenceLogs.count > 300 {
+                self.inferenceLogs.removeFirst(self.inferenceLogs.count - 300)
             }
         }
     }
@@ -580,6 +617,7 @@ final class HaruEngine: ObservableObject {
     deinit {
         inputPump?.cancel()
         audioIO.stop()
+        HaruRuntimeSetLogCallback(nil, nil)
         if let runtime { HaruRuntimeDestroy(runtime) }
     }
 }
